@@ -1,5 +1,17 @@
 # 更新日志
 
+## v1.8.0 (2026-11-26)
+
+**适配 dsh 0.2.2-rc.5（纯插件发版；扩展仍是 1.7.5，不用重装）。** 宿主自 0.2.0-rc.2 起删掉了运行时不变量注册表、要求 Node 24、把工具执行模式搬出 dsh-tools 配置。本版把 peer 下限抬到 rc.5、移除随之作废的模块；30 个工具、桥接协议、错误契约一条不变。
+
+- **移除 `@deepseek-ai/dsh-invariants` 伴生模块**（宿主指南 `v0.2.0-rc.2/remove-runtime-invariants`：该包、`InvariantInstaller` 与所有包的 `./invariant` 子路径都已不再发布）：删掉 `src/invariant.ts`、`package.json` 的 `./invariant` 导出与 `files` 条目、peer 与 devDependency，`tsdown.config.ts` 不再打第二个 bundle；重建后 `lib/` 里没有 `invariant*`。该模块原本只做一次空注册（桥不持有持久会话事件），运行时零变化。
+- **依赖换代**：cordis `~4.0.4` → `~4.1.0`（`FiberState` / `Context` / `ctx.effect` / `ctx.inject` 语义不变，内联的 `DISPOSED=4` / `UNLOADING=5` 与 4.1.0 一致）、`@deepseek-ai/schemastery` `~3.18.4` → `~3.19.0`（dsh 0.2.2-rc.5 自己钉的就是这两版）；devDependencies 精确钉到 `0.2.2-rc.5` / `4.1.0`，锁文件与 typecheck 从此校的是真实 rc.5 类型。
+- **peer 范围**：`@deepseek-ai/dsh-tools` / `dsh-settings` 由 `0.2.0-rc.2 || >=0.1.0-rc.1 <0.3.0-0` 改为 `>=0.2.2-rc.5 <0.3.0-0`——下限即本次适配的宿主，更早世代不再声称支持。仍不写 `engines.dsh`，留在 peer 门禁这一侧（`v0.2.1-alpha.3/plugin-engines-dsh`：一旦有 `engines.dsh`，peer 范围会被整个忽略）。
+- **工具面核对（无需改动）**：`defineTool` / `DefineToolOptions` / `ParameterSchemaSpec` / `ValueSchemaSpec` / `ToolRunContext` 在 rc.5 的 `dsh-tools` 里全部健在、形状一致（`exec.signal`、`exec.agent`、`presentCall` 的 `generic` 卡、`output.render`）。本插件的工具都是无条件注册，不在 `system-prompt/assemble` 里过滤工具、不读 `DSH_TOOLS_MODE`，所以 `v0.2.1-rc.2/conditional-tools`（`register(def, { when })`）与 `tool-executor-plugins` 对它没有新要求；提示词段落仍是静态文本的 `ctx.systemPrompt.section({ name, order, text })`。
+- **settings 接线核对（无需改动）**：rc.5 的 `SettingsForms` 仍只有 `configure/describe/update/replace/mutate`、没有 `register`，特性探测照旧走 `configure({ auto: true })` 这一支（`verify_plugin.mjs` 三种宿主形状全过）。顺带发现宿主设置页只投影 `.volatile()` 字段，而本插件 `Config` 没有这类字段，所以开关实际上只能从 profile 覆盖层改——已在 `docs/INSTALL.md` 写明；没有改 `Config`（那是功能变更，不属于兼容适配）。
+- **Node 24**：宿主要求 Node.js 24.9+（`v0.2.1-rc.2/node-24`）；CI 本来就钉 `node-version: 24`，本机以 Node 24.13.0 构建。
+- **台子**：`verify_peers.mjs` 换成新一代策略——宿主世代列表改为 `0.2.2-rc.5`、`dsh-invariants` 列入「已移除、不得再声明」、只扫 `lib/index.js`，涉及预发布版的 peer 改为要求同名精确 devDependency 当锚点（23 项全过）。`verify_history_nav.mjs` 的 `shotsDir` 原先写死作者机器上的 `C:\Users\gzx\…`，换台机器直接 `EPERM`，改成 `%TEMP%`（21 项全过）。其余各台逐台跑过：除依赖 git tag 的 `verify_gate_coverage` / `verify_compat_matrix`（本 checkout 没有 tag，跑不起来）外全部 exit 0。
+
 ## v1.7.15 (2026-11-23)
 
 **纯插件发版**（扩展仍是 1.7.5，**不用重装**；扩展侧只有注释与实现对齐）。修 #30 与 #31 两个 PR。

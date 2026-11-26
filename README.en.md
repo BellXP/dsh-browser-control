@@ -48,10 +48,10 @@ dsh plugin --profile web add @angelky7/dsh-browser-control
 Or from a GitHub tag:
 
 ```bash
-dsh plugin --profile web add "github:angelky7/dsh-browser-control#v1.7.15"
+dsh plugin --profile web add "github:angelky7/dsh-browser-control#v1.8.0"
 ```
 
-Offline asset: [dsh-browser-control-plugin-v1.7.15.zip](https://github.com/angelky7/dsh-browser-control/releases/download/v1.7.15/dsh-browser-control-plugin-v1.7.15.zip); unzip and run `dsh plugin --profile web add file:<the layer containing package.json>`.
+Offline asset: [dsh-browser-control-plugin-v1.8.0.zip](https://github.com/angelky7/dsh-browser-control/releases/download/v1.8.0/dsh-browser-control-plugin-v1.8.0.zip); unzip and run `dsh plugin --profile web add file:<the layer containing package.json>`.
 
 Restart dsh afterwards. The bridge is on by default; status page <http://127.0.0.1:9777/>. If a just-published version will not install (mirror lag / 24-hour package-age gate), see [Install troubleshooting](docs/INSTALL.md).
 
@@ -101,6 +101,8 @@ Grouped by purpose; inputs, receipts and edge cases are in the [full tool refere
 | [Changelog](CHANGELOG.md) | Version history |
 
 ## Compatibility
+
+**Host requirement:** dsh `>=0.2.2-rc.5` (declared as the peer range `>=0.2.2-rc.5 <0.3.0-0`; dsh itself requires Node.js 24.9+ since 0.2.1). v1.8.0 targets 0.2.2-rc.5: the `@deepseek-ai/dsh-invariants` companion module (the `./invariant` subpath) is gone because the host removed that package, and the plugin moves to cordis `~4.1.0` and schemastery `~3.19.0`; older hosts are no longer claimed.
 
 The command surface is append-only: **plugin x + extension x-n never regresses** (the compatibility matrix replays real historical extension code). Extension v1.7.2 keeps working with the latest plugin; multi-instance routing comes in a later release.
 

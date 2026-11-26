@@ -36,6 +36,7 @@ Chrome 浏览器扩展 + DeepSeek Harness 插件，让 AI Agent 通过 CDP 驱�
 
 ## 版本与兼容
 
+- **宿主**：dsh `>=0.2.2-rc.5`（peer `>=0.2.2-rc.5 <0.3.0-0`，Node.js 24+）。v1.8.0 起不再有 `./invariant` 子路径——宿主已移除 `@deepseek-ai/dsh-invariants`；cordis `~4.1.0`、schemastery `~3.19.0`（devDependencies 精确钉版，`verify/verify_peers.mjs` 对账）
 - **插件升级对旧扩展零倒退**（铁律：插件 x + 扩展 x-n ≥ 插件 x-n + 扩展 x-n，兼容矩阵台机器验证，不是口号）
 - v1.7.2+ 扩展的 hello 帧带 `capabilities`（命令清单），插件精确握手；老扩展的 hello 不带 ⇒ 版本映射兜底
 - 插件比扩展新时，缺命令的动作在发送前拦下：`extension_outdated` + 可执行的重装指引，绝不裸 unknown command

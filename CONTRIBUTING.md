@@ -50,9 +50,9 @@ node verify/verify_release_links.mjs /tmp/releases.json
 - **一条 peer 范围有两个读法完全不同的消费者，必须同时过两关。**
   - 宿主门禁（`@deepseek-ai/dsh-app-boot`，实测 `lib/index.js:294-300`）：只看名字为 `@deepseek-ai/dsh` / `@deepseek-ai/dsh-*` 的 peer，拿**宿主版本号**做 `semver.satisfies(runtimeVersion, range, { includePrerelease: true })`，不过就 throw（`:931`）→ 整个插件 bundle 被跳过，要 `dsh plugin allow-version` 才救得回来。`cordis` / `schemastery` 不在这套筛选里。
   - 包管理器（pnpm / npm，默认语义**不带** includePrerelease）：拿**包自己的版本列表**匹配。semver 的预发布规则是「范围里得有同 `[major,minor,patch]` 元组的预发布比较符」，而 `@deepseek-ai/dsh-*` 全族没有任何稳定版（`latest` 停在 `0.0.1-rc.1`，真版本在 `next`/`alpha`）。
-  - 两个坑各朝一边：`">=0.1.0-rc.1 <0.3.0-0"` 这种宽范围门禁全过，但解析器最大只给到 **0.1.0-rc.8**（v1.0.8 就这么写的，锁文件因此把宿主 API 钉在半年前那代）；只钉 `"0.2.0-rc.2"` 解析器满意，但 0.1.7 / 0.2.1 宿主会被判不兼容而整个跳过。**能同时过的写法是两条并列**：`0.2.0-rc.2 || >=0.1.0-rc.1 <0.3.0-0`——精确支当锚点，宽支给门禁放行。判据用 `npm view "<pkg>@<range>" version` 和宿主任意版本的 `satisfies(..., {includePrerelease:true})` 各跑一遍，别心算。
-- **不要加 `engines.node`。** 官方 dsh 插件一个都没写，Node 版本归宿主决定，留着它只是给 `engine-strict` 的用户多摆一个会拒绝安装的开关（宿主门禁实测根本不读 engines）。
-- 宿主注入的包（cordis / dsh-tools / dsh-settings / dsh-invariants）**只能是 peer**，不能同时出现在 `dependencies`——装出第二份宿主包会让服务注入/工具注册失效。纯工具库 `@deepseek-ai/schemastery` 反过来必须是 `dependencies`（官方插件也是这么做的，`~3.18.4`）。宿主换代时要手动把精确锚点改成新一代（`verify_peers.mjs` 会用宿主同款 semver 把两关都跑一遍并拦住改错）。
+  - 两个坑各朝一边：`">=0.1.0-rc.1 <0.3.0-0"` 这种宽范围门禁全过，但解析器最大只给到 **0.1.0-rc.8**（v1.0.8 就这么写的，锁文件因此把宿主 API 钉在半年前那代）；只钉 `"0.2.0-rc.2"` 解析器满意，但 0.1.7 / 0.2.1 宿主会被判不兼容而整个跳过。**能同时过的写法是两条并列**：`0.2.0-rc.2 || >=0.1.0-rc.1 <0.3.0-0`——精确支当锚点，宽支给门禁放行。判据用 `npm view "<pkg>@<range>" version` 和宿主任意版本的 `satisfies(..., {includePrerelease:true})` 各跑一遍，别心算。**v1.8.0 起改为单条范围** `>=0.2.2-rc.5 <0.3.0-0`（下限即适配的宿主，更早世代不再声称支持）：锚点改由 devDependencies 的**精确钉版**承担（锁文件/typecheck 校的就是它，终端用户的宿主包由运行中的 dsh 提供），`verify_peers.mjs` 第 1 关据此校验。
+- **不要加 `engines.node` / `engines.dsh`。** 官方 dsh 插件一个都没写，Node 版本归宿主决定，留着它只是给 `engine-strict` 的用户多摆一个会拒绝安装的开关。dsh 0.2.1-alpha.3 起宿主门禁**先读 `engines.dsh`**、没有才回落到 peerDependencies（`v0.2.1-alpha.3/plugin-engines-dsh`）；本插件刻意不写，留在 peer 这一侧。
+- 宿主注入的包（cordis / dsh-tools / dsh-settings）**只能是 peer**，不能同时出现在 `dependencies`——装出第二份宿主包会让服务注入/工具注册失效。`@deepseek-ai/dsh-invariants` 已随 dsh 0.2.1 移除（各包的 `./invariant` 子路径一并删除），哪里都不能再声明。纯工具库 `@deepseek-ai/schemastery` 反过来必须是 `dependencies`（官方插件也是这么做的，`~3.19.0`）。宿主换代时要手动把 devDependencies 的精确钉版改成新一代（`verify_peers.mjs` 会用宿主同款 semver 把两关都跑一遍并拦住改错）。
 
 ## 提交规范
 

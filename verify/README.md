@@ -14,7 +14,7 @@ node verify/verify_plugin.mjs new     # 单独跑一个
 | 脚本 | 证明什么 | 关联 |
 |---|---|---|
 | `verify_config_patch.mjs` | `Config({enabled:false})` 得到的是 `false`——即包内 `cordis.patch.yml` 的显式值压过 v1.0.6 的 schema 默认 `true`，这就是「装上后 9777 无人监听」的根因 | #4 |
-| `verify_peers.mjs` | 用**宿主自己用的那个 semver**把同一条 peer 范围的两个读者各跑一遍：包管理器视角（默认语义——本地装的版本必须满足对外声明，且涉及预发布时必须有精确支当锚点）与宿主门禁视角（`includePrerelease:true`，拿 0.1.2-rc.1 / 0.1.7-rc.2 / 0.2.0-rc.2 / 0.2.1-alpha.2 四代宿主版本逐个试），外加宿主包只能是 peer、产物裸 import 全有交代、`engines` 必须不存在。v1.0.8 那条宽范围在前者只解析到 0.1.0-rc.8、在后者全绿，就是这个台把它暴露出来的 | #13 |
+| `verify_peers.mjs` | 用**宿主自己用的那个 semver**把同一条 peer 范围的两个读者各跑一遍：包管理器视角（默认语义——本地装的版本必须满足对外声明）与宿主门禁视角（`includePrerelease:true`，拿声称支持的每一代宿主版本逐个试；v1.8.0 起只有 `0.2.2-rc.5`），涉及预发布版的 peer 要求同名**精确 devDependency 当锚点**，外加宿主包只能是 peer、已随宿主移除的 `dsh-invariants` 哪里都不能声明、产物裸 import 全有交代、`engines` 必须不存在。v1.0.8 那条宽范围在前者只解析到 0.1.0-rc.8、在后者全绿，就是这个台把它暴露出来的 | #13 |
 | `verify_plugin.mjs [legacy\|conflict\|new]` | 用假 cordis 上下文跑真 `apply()`，三种宿主形状（有 `register` / `register` 抛错 / 根本没有 `register`）下都必须「回调不抛、端口监听、工具全部注册」；legacy 模式还额外回归「改 `enabled` 能实时关/开端口」 | #8、#4 |
 | `verify_surface.mjs` | 四方对账：扩展 `COMMANDS` 表 ↔ 插件 `controller.execute()` 实际调用的命令 ↔ 两份 README 的工具表 ↔ 构建产物 `lib/index.js`。防「扩展实现了但 agent 调不到」「文档吹了不存在的工具」「npm 包比源码少工具」三类复发 | v1.0.7 11/16、`browser_wait` |
 | `verify_gate_coverage.mjs` | 版本闸门覆盖（v1.7.15，纯插件，#30）：用**全部 40 个 git tag** 物化真实历史 `extension/background.js` + `manifest.json`，建「命令 → 首次出现的扩展版本」真值表，再反查 `EXTENSION_COMMANDS_BY_VERSION` **双向**对账（不漏组、也不吹牛）：把表还原成旧的 5 条会当场红并点名 14 条漏登记。另断言表按 `since` 升序无重复、扩展命令面在相邻 tag 之间只增不减、每条非基线命令都有闸门调用点 | #30 |
@@ -52,7 +52,7 @@ node verify/verify_plugin.mjs new     # 单独跑一个
 
 写这些脚本时踩到的坑，记在这里免得重来：
 
-- `dsh-settings` 的导出面按版本不同：`0.1.2-rc.1` 有 `register`，`0.1.7-rc.2`/`0.2.0-rc.2` 只有 `SettingsForms`（`configure/describe/update/replace/mutate`）。想验证兼容性，不必装宿主，`npm pack @deepseek-ai/dsh-settings@<ver>` 解包 grep 就够了。
+- `dsh-settings` 的导出面按版本不同：`0.1.2-rc.1` 有 `register`，`0.1.7-rc.2`/`0.2.0-rc.2`/`0.2.2-rc.5` 只有 `SettingsForms`（`configure/describe/update/replace/mutate`）。想验证兼容性，不必装宿主，`npm pack @deepseek-ai/dsh-settings@<ver>` 解包 grep 就够了。
 - 假 `chrome.storage.local` 的 `set` 必须真的落盘并广播 `onChanged`，否则「活过 service worker 重启」这类状态测不出来；`verify/ext_harness.mjs` 现在是这个语义。
 - 假 cordis 上下文里 `apply()` 起的监听是**异步**的：不等端口真的在听，"放行"的命令会报 `bridge_disabled`（还没起）而不是 `extension_offline`（起了但没扩展连上），后者才是「闸门放行」的证据。
 - schemastery 的 schema 本身就是校验函数：`Config(data)` 直接返回补齐默认值后的对象，没有 `.parse()`。

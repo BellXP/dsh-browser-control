@@ -108,7 +108,8 @@ const HINTS: Record<BridgeErrorCode, string> = {
 /**
  * 失败文案里「该不该重试」那半句。
  *
- * 宿主的失败内容是 `Error: ${message}`（`@deepseek-ai/dsh-tools` `lib/index.js:3616-3623`），
+ * 宿主的失败内容是 `Error: ${message}`（`@deepseek-ai/dsh-tools` 的 `lib/pipeline.js`，
+ * dsh 0.2.1 起从 `lib/index.js` 搬到了这里），
  * `code` / `effectState` / `hint` 这些结构化字段只进 `error.info` 与 HTTP 面，
  * **模型读不到**。所以决定下一步所需的两个信息——副作用状态与下一步动作——必须写进
  * message 本身，否则整个错误契约对 agent 失效（和「render 只写摘要」是同一类缺陷）。

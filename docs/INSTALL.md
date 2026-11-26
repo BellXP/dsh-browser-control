@@ -3,6 +3,7 @@
 ## 前置
 
 - Chrome / Edge 116+
+- dsh `>=0.2.2-rc.5`（插件 v1.8.0 起的下限；dsh 自 0.2.1 起要求 Node.js 24.9+）
 - dsh（插件通过 `dsh plugin` 安装；它转发给 pnpm，所以 pnpm 要在 PATH 上）
 - 首次使用会自动初始化目标 profile
 
@@ -75,6 +76,7 @@ dsh plugin --profile web add "file:D:\path\to\dsh-browser-control"
 
 | 宿主 | 设置页 | 改配置 |
 |---|---|---|
+| dsh 0.2.2-rc.5 及以上（本插件 v1.8.0 起支持的下限） | 宿主按插件 `Config` schema 自动投影；dsh-settings 只投影 `.volatile()` 字段，本插件的 `Config` 没有声明这类字段，所以实际以 profile 覆盖层为准 | profile 覆盖层 |
 | dsh 0.1.7+ / 0.2.x（dsh-settings 0.1.7-rc.2 起） | 有，宿主按插件 `Config` schema 自动投影 | 设置页，或 profile 覆盖层 |
 | dsh 0.1.2 及更早 | 没有（没有客户端半区认领命名空间） | 只能改 profile 覆盖层 |
 

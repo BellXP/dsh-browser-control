@@ -17,6 +17,13 @@
 // 所以能同时过两关的写法只有一种：**精确钉版 `||` 宽范围**——
 // `"0.2.0-rc.2 || >=0.1.0-rc.1 <0.3.0-0"`。实测：包管理器 maxSatisfying 得到 0.2.0-rc.2，
 // 宿主门禁对 0.1.2-rc.1 / 0.1.7-rc.2 / 0.2.0-rc.2 / 0.2.1-alpha.2 全过。
+//
+// v1.8.0（适配 dsh 0.2.2-rc.5）起换了策略：peer 下限抬到 rc.5（`>=0.2.2-rc.5 <0.3.0-0`），
+// 不再并列精确支。原因：`@deepseek-ai/dsh-invariants` 已随宿主移除、cordis 4.1.0 /
+// schemastery 3.19.0 换代，旧世代宿主不再声称支持；而「解析器锚点」的职责改由
+// devDependencies 的**精确钉版**承担（0.2.2-rc.5 / 4.1.0）——锁文件与 typecheck 校的是它们，
+// 终端用户的宿主包由运行中的 dsh 自己提供（peer），不从 registry 解析。下面第 1 关据此改写：
+// 涉及预发布版的 peer，必须有同名精确 devDependency 且落在 peer 范围内。
 import { readFile } from "node:fs/promises";
 import semver from "semver";
 
@@ -26,16 +33,19 @@ const check = (name, ok, detail = "") => {
   console.log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? "  -> " + detail : ""}`);
 };
 
-/** 本插件声称兼容、且实测过（假宿主形状 + 特性探测）的宿主世代。抬 ceiling 是一次有意的决定。 */
-const SUPPORTED_HOSTS = ["0.1.2-rc.1", "0.1.7-rc.2", "0.2.0-rc.2", "0.2.1-alpha.2"];
+/** 本插件声称兼容的宿主世代（v1.8.0 起）：peer 下限即此，typecheck / build 校的也是它的真实类型。抬 ceiling 是一次有意的决定。 */
+const SUPPORTED_HOSTS = ["0.2.2-rc.5"];
 /** 宿主注入的包：必须是 peer，且只有 @deepseek-ai/dsh* 会被门禁检查。 */
-const HOST_OWNED = ["@deepseek-ai/cordis", "@deepseek-ai/dsh-tools", "@deepseek-ai/dsh-settings", "@deepseek-ai/dsh-invariants"];
+const HOST_OWNED = ["@deepseek-ai/cordis", "@deepseek-ai/dsh-tools", "@deepseek-ai/dsh-settings"];
+/** 宿主已移除的包（dsh 0.2.1 起不再发布 `@deepseek-ai/dsh-invariants` 与各包的 `./invariant` 子路径）：任何地方都不得再声明。 */
+const REMOVED_HOST_PACKAGES = ["@deepseek-ai/dsh-invariants"];
 /** 跟着包一起发的纯工具库：官方插件（dsh-persona / dsh-skill）都放 dependencies。 */
 const BUNDLED = ["@deepseek-ai/schemastery"];
 
 const pkg = JSON.parse(await readFile("package.json", "utf8"));
 const peers = pkg.peerDependencies ?? {};
 const deps = pkg.dependencies ?? {};
+const devDeps = pkg.devDependencies ?? {};
 const gated = (name) => name === "@deepseek-ai/dsh" || name.startsWith("@deepseek-ai/dsh-");
 const alternatives = (range) => String(range).split("||").map((s) => s.trim()).filter(Boolean);
 const isExact = (part) => /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(part);
@@ -50,15 +60,18 @@ for (const name of new Set([...Object.keys(peers), ...Object.keys(deps)])) {
   }
 }
 
-/* 1 —— 形状：每个选择支都得是包管理器看得懂的形式，且至少要有一个精确支 */
+/* 1 —— 形状：每个选择支都得是包管理器看得懂的形式；涉及预发布版的 peer 要有精确 devDependency 当锚点 */
 for (const [label, table] of [["peer", peers], ["dependency", deps]]) {
   for (const [name, range] of Object.entries(table)) {
     const parts = alternatives(range);
     const junk = parts.filter((p) => !isExact(p) && !isStableCaretTilde(p) && !/^>=[^|]*<[^|]*$/.test(p));
     check(`${label} ${name} 的选择支形式合法`, junk.length === 0, junk.length ? `"${range}" 里的 ${junk.join(" / ")}` : "");
+    if (label !== "peer") continue;
     const needsAnchor = parts.some((p) => /-/.test(p.replace(/^[\^~]/, "")));
-    check(`${label} ${name} 涉及预发布版时必须有一条精确支当锚点（否则解析器只会拿到远古版）`,
-      !needsAnchor || parts.some(isExact), needsAnchor && !parts.some(isExact) ? `"${range}" 没有精确支` : "");
+    const devPin = devDeps[name];
+    const anchored = isExact(String(devPin ?? "")) && semver.satisfies(devPin, range);
+    check(`peer ${name} 涉及预发布版：devDependencies 必须精确钉版且落在 peer 范围内（锁文件/typecheck 的锚点）`,
+      !needsAnchor || anchored, needsAnchor && !anchored ? `"${range}" 的锚点是 devDependencies=${devPin ?? "(无)"}` : needsAnchor ? `锚点 ${devPin}` : "");
   }
 }
 
@@ -79,10 +92,14 @@ for (const [name, range] of Object.entries(peers)) {
   }
 }
 
-/* 4 —— 归属：宿主包只能当 peer，工具库必须是 dependency */
+/* 4 —— 归属：宿主包只能当 peer，工具库必须是 dependency；宿主已移除的包哪里都不能出现 */
 for (const name of HOST_OWNED) {
   const why = !(name in peers) ? "peer 里缺它" : name in deps ? "同时出现在 dependencies，会装出第二份宿主包" : "";
   check(`${name} 声明为 peer 且没有同时是 dependency`, why === "", why);
+}
+for (const name of REMOVED_HOST_PACKAGES) {
+  const where = [["peerDependencies", peers], ["dependencies", deps], ["devDependencies", devDeps]].filter(([, t]) => name in t).map(([l]) => l);
+  check(`${name} 已随宿主移除，不得再声明`, where.length === 0, where.join(", "));
 }
 for (const name of BUNDLED) {
   check(`${name} 声明为 dependency`, name in deps && !(name in peers), `dependencies=${deps[name] ?? "(无)"}`);
@@ -90,7 +107,7 @@ for (const name of BUNDLED) {
 
 /* 5 —— 构建产物的 import 闭包：裸模块必须都有声明 */
 const runtime = new Set();
-for (const bundle of ["lib/index.js", "lib/invariant.js"]) {
+for (const bundle of ["lib/index.js"]) {
   const code = await readFile(bundle, "utf8");
   const bare = [...code.matchAll(/from\s+"([^"./][^"]*)"/g)].map((m) => m[1]).filter((s) => !s.startsWith("node:"));
   for (const s of bare) runtime.add(s);
@@ -102,11 +119,12 @@ const asDeps = [...runtime].filter((s) => s in deps && HOST_OWNED.includes(s));
 check("运行时引用的宿主包没有被塞进 dependencies", asDeps.length === 0, asDeps.join(", "));
 console.log(`   产物运行时真正 import 的外部包：${[...runtime].join(", ")}`);
 
-/* 6 —— schemastery 与宿主同族（~），且不需要门禁锚点（它有稳定版） */
+/* 6 —— schemastery 与宿主同族（~；dsh 0.2.2-rc.5 自己钉 ~3.19.0），且不需要门禁锚点（它有稳定版） */
 const schemaRange = deps["@deepseek-ai/schemastery"] ?? "";
-check("schemastery 用 ~（宿主自己也是 ~3.18.x）", /^~\d+\.\d+\.\d+$/.test(schemaRange), schemaRange);
+check("schemastery 用 ~（宿主自己也是 ~3.19.x）", /^~\d+\.\d+\.\d+$/.test(schemaRange), schemaRange);
 
-/* 7 —— 不声明 engines：Node 版本由宿主决定；宿主门禁实测只看 peerDependencies */
+/* 7 —— 不声明 engines.dsh：Node 版本由宿主决定（dsh 0.2.1+ 要求 Node 24）；宿主门禁先读 engines.dsh、
+   没有才回落到 peerDependencies——本插件刻意留在 peer 这一侧（v0.2.1-alpha.3/plugin-engines-dsh） */
 check("package.json 不写 engines", pkg.engines === undefined, pkg.engines === undefined ? "" : JSON.stringify(pkg.engines));
 
 console.log(`\n结论：${fails === 0 ? "依赖声明同时过宿主门禁与包管理器两关" : fails + " 项不过"}`);

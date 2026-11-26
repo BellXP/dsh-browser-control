@@ -48,10 +48,10 @@ dsh plugin --profile web add @angelky7/dsh-browser-control
 或从 GitHub tag：
 
 ```bash
-dsh plugin --profile web add "github:angelky7/dsh-browser-control#v1.7.15"
+dsh plugin --profile web add "github:angelky7/dsh-browser-control#v1.8.0"
 ```
 
-离线包：[dsh-browser-control-plugin-v1.7.15.zip](https://github.com/angelky7/dsh-browser-control/releases/download/v1.7.15/dsh-browser-control-plugin-v1.7.15.zip)，解压后对含 `package.json` 的那一层执行 `dsh plugin --profile web add file:<那一层>`。
+离线包：[dsh-browser-control-plugin-v1.8.0.zip](https://github.com/angelky7/dsh-browser-control/releases/download/v1.8.0/dsh-browser-control-plugin-v1.8.0.zip)，解压后对含 `package.json` 的那一层执行 `dsh plugin --profile web add file:<那一层>`。
 
 装完重启 dsh。桥默认开启，状态页 <http://127.0.0.1:9777/>。刚发布的版本装不上（镜像延迟 / 24 小时包龄闸门）见 [安装排障](docs/INSTALL.md)。
 
@@ -101,6 +101,8 @@ config:
 | [更新日志](CHANGELOG.md) | 版本历史 |
 
 ## 兼容性
+
+**宿主要求**：dsh `>=0.2.2-rc.5`（peer 声明 `>=0.2.2-rc.5 <0.3.0-0`；dsh 自 0.2.1 起要求 Node.js 24.9+）。v1.8.0 起按 0.2.2-rc.5 适配：移除随宿主一并删除的 `@deepseek-ai/dsh-invariants` 伴生模块（`./invariant` 子路径），cordis `~4.1.0`、schemastery `~3.19.0`；更早的宿主不再声称支持。
 
 命令面只增不改：**插件 x + 扩展 x-n 不倒退**（`verify_compat_matrix` 用真实历史扩展逐格跑）。扩展 v1.7.2 配合最新插件仍然工作；多实例路由在后续版本。
 
