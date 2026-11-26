@@ -566,16 +566,21 @@ class BridgeController {
 	 *   that wait inside the page (browser_wait) must pass a value larger than their
 	 *   own page-level timeout, otherwise the bridge aborts first and the caller
 	 *   cannot tell a slow page from a dead link.
+	 * @param options - `origin: 'panel'` marks the Live Browser tab (v1.9.0): the
+	 *   user's own action, so the read-only / no-script policy — which binds the
+	 *   model — does not apply; the audit trail still records it, marked `[panel]`.
+	 *   The model's tools never pass it, and no tool reaches this option.
 	 * @returns the extension's result payload verbatim.
 	 */
-	async execute(command: string, params: Record<string, unknown>, signal: AbortSignal, timeoutMs?: number): Promise<unknown> {
+	async execute(command: string, params: Record<string, unknown>, signal: AbortSignal, timeoutMs?: number, options: { origin?: 'tool' | 'panel' } = {}): Promise<unknown> {
 		const started = Date.now()
 		const sessionId = TOOL_SESSION.getStore()
 		const resolved = sessionId === undefined ? params : await this.isolateParams(command, params, sessionId, signal)
-		const summary = summarizeAuditParams(command, resolved)
+		const userInitiated = options.origin === 'panel'
+		const summary = (userInitiated ? '[panel] ' : '') + summarizeAuditParams(command, resolved)
 		const tabId = typeof resolved.tabId === 'number' ? resolved.tabId : undefined
 		try {
-			this.policyGate(command, resolved)
+			if (!userInitiated) this.policyGate(command, resolved)
 			if ((command === 'click' || command === 'input' || command === 'find') && usesFrameTarget(resolved)) {
 				this.requireFrameSupport()
 			}

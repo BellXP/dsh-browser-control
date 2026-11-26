@@ -107,7 +107,7 @@ window.__ModuleLoader__.load({
       'loading': '正在连接…',
       'status.disabled': 'browser-bridge 未启用：在插件设置里打开 enabled。',
       'status.offline': '扩展未连接：打开装了 DSH Browser Control 扩展的浏览器（图标变绿），然后点「刷新画面」。',
-      'status.readOnly': '只读模式：可以看，不能操作。',
+      'status.readOnly': '只读档已开：agent 的工具不能操作浏览器；你在面板里的操作不受限。',
       'remote.missing': '浏览器控制面板尚未就绪（插件 host 半未加载），请刷新页面。',
       'remote.mount.failed': '客户端远程挂载失败：',
       'empty': '还没有画面。点「刷新画面」或等待自动刷新。',
@@ -137,7 +137,7 @@ window.__ModuleLoader__.load({
       'loading': 'Connecting…',
       'status.disabled': 'The browser bridge is disabled: turn on enabled in the plugin settings.',
       'status.offline': 'Extension not connected: open the browser with the DSH Browser Control extension (icon turns green), then press Refresh view.',
-      'status.readOnly': 'Read-only mode: viewing only.',
+      'status.readOnly': 'Read-only mode is on: the agent cannot act; your own actions in this panel are not restricted.',
       'remote.missing': 'The browser panel is not ready yet (plugin host half not loaded); refresh the page.',
       'remote.mount.failed': 'Client remote mount failed: ',
       'empty': 'No picture yet. Press Refresh view or wait for auto refresh.',
@@ -243,7 +243,8 @@ window.__ModuleLoader__.load({
         const targetId = pinnedId === null ? activeTabId : pinnedId
         const connected = !!(status && status.listening && status.extensionConnected)
         const readOnly = !!(status && status.readOnly)
-        const canAct = mounted && connected && !readOnly
+        // Read-only gates the agent's tools only: the user's own actions in this panel stay live.
+        const canAct = mounted && connected
 
         const call = useCallback(async (method, ...args) => {
           const service = getService()

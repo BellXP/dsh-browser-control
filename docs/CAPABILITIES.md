@@ -79,7 +79,7 @@ BrowserSkill 明确没有：PDF 导出、网络日志整体导出与过滤、con
 
 | 层 | 谁能开 / 关 | 拦在哪 | 覆盖范围 |
 |---|---|---|---|
-| `readOnly` / `allowScript`（profile 配置） | 用户改配置；模型读得到同一份文件，所以**不是**边界 | `BridgeController.execute()`，命令发给扩展**之前** | 模型那条工具面；HTTP 面不受约束 |
+| `readOnly` / `allowScript`（profile 配置） | 用户改配置；模型读得到同一份文件，所以**不是**边界 | `BridgeController.execute()`，命令发给扩展**之前**；Live Browser 面板（v1.9.0）以 `origin: 'panel'` 跳过这道闸门并在审计里标 `[panel]`——只读档的意思是「模型别动」，不是「用户别动」 | 模型那条工具面；HTTP 面不受约束 |
 | 扩展弹窗「锁定」 | **只有用户**：只能通过扩展页面的 `chrome.runtime` 消息设置，manifest 没有 `externally_connectable`，桥侧没有任何解锁命令 | `runCommand` 入口，handler 一个都不执行 | 全部命令（含只读），零 CDP 派发 |
 | profile 里 `enabled: false` / 拔连接 | 用户，但模型也能改（同一个文件） | 插件不监听 | 整个桥 |
 

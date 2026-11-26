@@ -73,7 +73,7 @@ Since v1.9.0 the right Sidebar's guide has a **Live Browser** card. It shows the
 - Back / Forward / Reload page / Refresh view / Auto refresh; **Open in browser** jumps to the system browser
 - Click the picture to click the page, the wheel scrolls it; the bottom box sends text to the page (Enter sends and presses Enter, Shift+Enter sends only), next to Esc / ⌫ / Tab
 
-The panel uses the same bridge as the `browser_*` tools (Typert remote `browser-live` → the same command gate), so **in read-only mode it is view-only too**, and its actions land in the same audit trail. The picture is a periodic screenshot, not a video stream; when the extension is offline the panel says so.
+The panel uses the same bridge as the `browser_*` tools (Typert remote `browser-live`), and its actions land in the same audit trail. **Read-only mode gates the agent's tools only**: your own actions in the panel are not restricted, so turning read-only on means "I may look and act; the agent may not touch my browser". The extension popup's lock stops the panel too. The picture is a periodic screenshot, not a video stream; when the extension is offline the panel says so.
 
 ## Safety gates
 

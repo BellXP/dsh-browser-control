@@ -40,8 +40,8 @@ check(plugin.inject.includes("remote") && plugin.inject.includes("sidebarRightTa
 // ---- 2) the service against a fake bridge
 const calls = [];
 const fakeBridge = {
-  async execute(command, params, signal, timeoutMs) {
-    calls.push({ command, params, timeoutMs, aborted: signal?.aborted });
+  async execute(command, params, signal, timeoutMs, options) {
+    calls.push({ command, params, timeoutMs, aborted: signal?.aborted, origin: options?.origin });
     if (command === "tabs.list") return { count: 2, activeTabId: 5, tabs: [{ id: 5, url: "https://a.example/", title: "A", active: true }, { id: 6 }] };
     if (command === "nav") return { tabId: params.tabId ?? 5, url: params.url, title: "N", siteUnreachable: { reason: "dns" } };
     if (command === "tabs.open") return { tabId: 9, url: params.url, title: "New" };
@@ -111,6 +111,9 @@ try { await svc.activateTab(null); } catch (error) { threw = error.message; }
 check(threw.includes("requires tabId"), `activateTab(null) refused: ${threw}`);
 for (const [name, value] of jsonSafeResults) check(!hasUndefined(value), `${name}(): no undefined own property`);
 check(calls.every((c) => c.timeoutMs === undefined || c.timeoutMs >= 1000), "timeouts only on navigation-shaped calls");
+// 只读档只绑模型：面板的每一条命令都带 origin:'panel'，execute() 据此跳过策略闸门并在审计里标 [panel]。
+const panelCalls = calls.filter((c) => c.command);
+check(panelCalls.length >= 15 && panelCalls.every((c) => c.origin === "panel"), `${panelCalls.length} panel commands, all carrying origin 'panel' (read-only gate binds the model only)`);
 
 // ---- 3) address normalisation
 const norm = plugin.__test.normalizeAddress;

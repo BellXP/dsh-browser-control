@@ -7,10 +7,13 @@
  * with bindTypertRemote; the Web client half (client/index.js) mounts the same-shaped
  * descriptors and calls ctx.remote['browser-live'].<method>().
  *
- * Every endpoint is the user's own action in the panel, so it goes through the same
- * BridgeController.execute gate as the model's tools (read-only / no-script policy
- * included) and lands in the same audit trail. Business failures throw; the gateway
- * turns them into { ok:false, error } for the panel. Results are compacted (no
+ * Every endpoint is the user's own action in the panel: it goes through the same
+ * BridgeController.execute path as the model's tools and lands in the same audit trail
+ * (marked `[panel]`), but passes `origin: 'panel'` so the read-only / no-script policy —
+ * which binds the model — does not apply: read-only means "the agent must not touch my
+ * browser", not "I must not". The extension popup's lock still stops the panel too,
+ * because the extension cannot tell who sent a command. Business failures throw; the
+ * gateway turns them into { ok:false, error } for the panel. Results are compacted (no
  * undefined-valued own property) because the gateway's boundary check rejects those.
  * @module @angelky7/dsh-browser-control/src/live
  */
@@ -82,7 +85,7 @@ export interface LiveBridgeStatus {
 
 /** What the panel needs from the bridge controller (structural, so the class stays module-private). */
 export interface LiveBridge {
-	execute(command: string, params: Record<string, unknown>, signal: AbortSignal, timeoutMs?: number): Promise<unknown>
+	execute(command: string, params: Record<string, unknown>, signal: AbortSignal, timeoutMs?: number, options?: { origin?: 'tool' | 'panel' }): Promise<unknown>
 	requireExtensionCommand(command: string, since: string): void
 	liveStatus(): LiveBridgeStatus
 }
@@ -142,7 +145,7 @@ export class LiveViewService extends Service {
 		const controller = new AbortController()
 		const timer = setTimeout(() => controller.abort(new Error(`${command} did not answer within ${CALL_DEADLINE_MS} ms`)), CALL_DEADLINE_MS)
 		try {
-			return await this.bridge.execute(command, params, controller.signal, timeoutMs) as T
+			return await this.bridge.execute(command, params, controller.signal, timeoutMs, { origin: 'panel' }) as T
 		} finally {
 			clearTimeout(timer)
 		}
