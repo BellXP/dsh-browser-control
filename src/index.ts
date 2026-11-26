@@ -33,6 +33,7 @@ import { AUDIT_MAX_ENTRIES, AuditLog, summarizeAuditParams, type AuditEntry } fr
 import { Journal, readJournal } from './journal.ts'
 import { SessionRegistry } from './sessions.ts'
 import { sliceWellFormed, toWellFormed } from './text.ts'
+import { LIVE_SERVICE, LIVE_TYPERT_CONTRIBUTION, LiveViewService, type LiveBridgeStatus } from './live.ts'
 
 /** Navigation wait ceiling (same as browser_wait); the bridge gets this plus BRIDGE_MARGIN_MS. */
 const NAV_MAX_MS = 120_000
@@ -408,6 +409,25 @@ class BridgeController {
 	/** Version the connected extension reported in its hello frame, if any. */
 	extensionVersion(): string | undefined {
 		return this.server?.status.hello?.version
+	}
+
+	/**
+	 * Link snapshot for the Live Browser panel (v1.9.0): the status page reduced to
+	 * what the tab shows. No socket access, no secrets — the token never leaves the
+	 * controller.
+	 */
+	liveStatus(): LiveBridgeStatus {
+		const status = this.server?.status
+		const browser = status?.hello?.browser
+		return {
+			listening: status?.listening === true,
+			extensionConnected: status?.extensionConnected === true,
+			extensionVersion: status?.hello?.version,
+			browser: browser === undefined ? undefined : `${browser.name} ${browser.version}`,
+			lastError: status?.lastError ?? this.lastError,
+			pendingCommands: status?.pendingCommands ?? 0,
+			readOnly: this.current?.readOnly === true,
+		}
 	}
 
 	/**
@@ -3073,6 +3093,19 @@ export function apply(ctx: Context, config: Config): void {
 	})
 
 	applyBrowserTools(ctx, controller)
+
+	// Live Browser panel (v1.9.0): the right-Sidebar tab drives the same bridge over
+	// Typert. Mounted only where the official typert service exists (the web profile
+	// supplies it); a host without it simply has no panel, exactly as before.
+	ctx.inject(['typert'], (scope) => {
+		try {
+			new LiveViewService(scope, controller)
+			scope.typert.register(LIVE_TYPERT_CONTRIBUTION)
+			ctx.logger.info(`browser-bridge: typert remote ${LIVE_SERVICE} registered (${LIVE_TYPERT_CONTRIBUTION.invocations.length} invocations)`)
+		} catch (error) {
+			ctx.logger.info(`browser-bridge: typert remote not registered: ${errorMessage(error)}`)
+		}
+	})
 	ctx.effect(() => () => {
 		void controller.stop()
 	}, 'browser-bridge: server lifecycle')

@@ -27,6 +27,7 @@ No headless browser, no copying login state around, no MCP — it drives the sig
 
 - 30 `browser_*` tools, usable from natural language
 - Visible: tabs the agent opens join a `DSH` group; one-click lock in the extension popup
+- Live Browser panel in the right Sidebar: watch and drive the tab the extension controls (v1.9.0)
 - Local gates: read-only / no arbitrary JS / upload allowlist
 - Auditable: in-memory audit trail plus a cross-restart journal
 - Install the extension once: regular feature updates since v1.7.3 are plugin-only (security/platform fixes may still update it)
@@ -62,6 +63,17 @@ Once installed, just ask the agent:
 > Use browser_snapshot to look at the current page, then click the login button by ref.
 
 Common entry points: `browser_snapshot` first, `browser_read` for the text, `browser_click` / `browser_type` by ref, `browser_screenshot` for images. See [Tools](docs/TOOLS.en.md) and [Behavior](docs/BEHAVIOR.md) for details.
+
+## Live Browser panel (right Sidebar)
+
+Since v1.9.0 the right Sidebar's guide has a **Live Browser** card. It shows the real tab the extension controls as a refreshed JPEG frame (every 1.5 s by default) with your own logins:
+
+- Tab menu: follow the active tab, or pin one (picking it brings it to the front)
+- Address bar: Enter opens; bare host names get `https`, anything else becomes a search; **New tab** opens in a new tab
+- Back / Forward / Reload page / Refresh view / Auto refresh; **Open in browser** jumps to the system browser
+- Click the picture to click the page, the wheel scrolls it; the bottom box sends text to the page (Enter sends and presses Enter, Shift+Enter sends only), next to Esc / ⌫ / Tab
+
+The panel uses the same bridge as the `browser_*` tools (Typert remote `browser-live` → the same command gate), so **in read-only mode it is view-only too**, and its actions land in the same audit trail. The picture is a periodic screenshot, not a video stream; when the extension is offline the panel says so.
 
 ## Safety gates
 

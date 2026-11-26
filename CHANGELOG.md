@@ -1,5 +1,14 @@
 # 更新日志
 
+## v1.9.0 (2026-11-26)
+
+**右侧栏「实时浏览器」面板（纯插件发版；扩展仍是 1.7.5，不用重装）。** 新增 Web 客户端半边：右侧栏向导多一张 Live Browser 卡片，显示扩展接管的真实标签页的画面，并可直接操作——标签页切换、地址栏、后退/前进/刷新、在画面上点击、滚轮滚动、文字与按键。面板经官方 Typert 远程（`browser-live`）走同一条桥、同一个命令闸门与审计账本，只读档下面板也只能看。
+
+- **客户端半边（`client/index.js`）**：`package.json` 加 `dsh.client`（`platform: web`，在 `@deepseek-ai/dsh-client-ui-sidebar-right` 之后激活）与 `./client` 导出；ModuleLoader 直接执行，React 来自模块表，样式只用 `--dsw-alias-*` token，文案走 `ctx.locale`（zh/en）。注册 `sidebarRightTabs` 类型 `live-browser`（guide 入口 order 35，`keepMounted` 保留面板状态）与 `sidebar.right.pane.tab` 槽位；面板的刷新快捷键绑到重新截图。画面是定时截图（默认 1.5 s），不是视频流。
+- **宿主半边（`src/live.ts`）**：`LiveViewService` + 13 个严格描述符（status / listTabs / navigate / openTab / activateTab / history / reload / screenshot / viewport / click / scroll / press / typeText），全部转发到 `BridgeController.execute`（`cdp` 用于 `Page.getLayoutMetrics`、`Input.dispatchMouseEvent` 三连、`Input.insertText`、`Page.reload`）。结果经 `compact()` 去掉 undefined 自有属性（网关边界校验会拒）。`BridgeController.liveStatus()` 给面板一份不含 token 的链路快照。只在 `typert` 服务存在时挂载（`ctx.inject(['typert'])`）。
+- **依赖**：新增 peer + devDependency `@deepseek-ai/dsh-typert-protocol` / `@deepseek-ai/dsh-typert-registry`（`0.2.2-rc.5`）；bundle 里保持 external，从插件自己的 node_modules 解析。
+- **台子**：新增 `verify/verify_live_panel.mjs`（不起浏览器、不占端口：client 描述符与 host 贡献逐方法逐参数对齐；假桥跑 13 个端点的参数形状与 JSON-safe 结果；地址栏归一化），并入 `npm run verify`。
+
 ## v1.8.0 (2026-11-26)
 
 **适配 dsh 0.2.2-rc.5（纯插件发版；扩展仍是 1.7.5，不用重装）。** 宿主自 0.2.0-rc.2 起删掉了运行时不变量注册表、要求 Node 24、把工具执行模式搬出 dsh-tools 配置。本版把 peer 下限抬到 rc.5、移除随之作废的模块；30 个工具、桥接协议、错误契约一条不变。
