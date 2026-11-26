@@ -108,6 +108,7 @@ window.__ModuleLoader__.load({
       'status.disabled': 'browser-bridge 未启用：在插件设置里打开 enabled。',
       'status.offline': '扩展未连接：打开装了 DSH Browser Control 扩展的浏览器（图标变绿），然后点「刷新画面」。',
       'status.readOnly': '只读档已开：agent 的工具不能操作浏览器；你在面板里的操作不受限。',
+      'status.extensionReadOnly': '扩展弹窗的只读开关已开：agent 的工具不能操作浏览器；你在面板里的操作不受限。',
       'remote.missing': '浏览器控制面板尚未就绪（插件 host 半未加载），请刷新页面。',
       'remote.mount.failed': '客户端远程挂载失败：',
       'empty': '还没有画面。点「刷新画面」或等待自动刷新。',
@@ -138,6 +139,7 @@ window.__ModuleLoader__.load({
       'status.disabled': 'The browser bridge is disabled: turn on enabled in the plugin settings.',
       'status.offline': 'Extension not connected: open the browser with the DSH Browser Control extension (icon turns green), then press Refresh view.',
       'status.readOnly': 'Read-only mode is on: the agent cannot act; your own actions in this panel are not restricted.',
+      'status.extensionReadOnly': "The extension popup's read-only switch is on: the agent cannot act; your own actions in this panel are not restricted.",
       'remote.missing': 'The browser panel is not ready yet (plugin host half not loaded); refresh the page.',
       'remote.mount.failed': 'Client remote mount failed: ',
       'empty': 'No picture yet. Press Refresh view or wait for auto refresh.',
@@ -472,6 +474,9 @@ window.__ModuleLoader__.load({
           h('div', { style: Object.assign({}, statusStyle, { color: statusColor }), title: statusLine || '' }, statusLine),
           readOnly && connected
             ? h('div', { style: Object.assign({}, statusStyle, { color: T.warn }) }, t('status.readOnly'))
+            : null,
+          status && status.extensionReadOnly
+            ? h('div', { style: Object.assign({}, statusStyle, { color: T.warn }) }, t('status.extensionReadOnly'))
             : null,
           error
             ? h('div', { style: Object.assign({}, statusStyle, { color: T.error }), title: error }, truncate(error, 200))

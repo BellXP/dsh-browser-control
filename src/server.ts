@@ -87,6 +87,14 @@ export interface BridgeExecuteOptions {
   readonly timeoutMs?: number
   /** Cancellation from the tool execution; aborting fails the in-flight command. */
   readonly signal?: AbortSignal
+  /**
+   * `'panel'` marks the user's own action from the Live Browser tab (v1.9.0): the
+   * command frame then carries `origin: 'panel'`, and the extension's read-only
+   * switch (v1.7.6) lets it through. Only BridgeController.execute sets it, for the
+   * panel's Typert service; `/api/command` never forwards one, so no HTTP caller can
+   * claim to be the user.
+   */
+  readonly origin?: 'tool' | 'panel'
 }
 
 /** What {@link BridgeServer.cleanup} removed. */
@@ -294,7 +302,12 @@ export class BridgeServer {
     }
     this.pending.set(id, entry)
     this.log(`-> ${command} (${id})`)
-    socket.write(encodeTextFrame(JSON.stringify({ type: 'command', id, command, params })))
+    // `origin` rides only on panel commands (see BridgeExecuteOptions.origin); every
+    // other caller's frame keeps its old shape so the protocol version stays put.
+    const frame = options.origin === 'panel'
+      ? { type: 'command', id, command, params, origin: 'panel' }
+      : { type: 'command', id, command, params }
+    socket.write(encodeTextFrame(JSON.stringify(frame)))
     try {
       return await result
     } catch (error) {

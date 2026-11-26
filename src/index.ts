@@ -26,7 +26,7 @@ import { FiberState, type Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { defineTool as defineHostTool, type DefineToolOptions, type ParameterSchemaSpec, type ToolRunContext, type ValueSchemaSpec } from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-settings'
-import { BridgeServer, cleanupArtifacts } from './server.ts'
+import { BridgeServer, cleanupArtifacts, type BridgeExecuteOptions } from './server.ts'
 import { BridgeError, classify } from './errors.ts'
 import { policyRefusal } from './policy.ts'
 import { AUDIT_MAX_ENTRIES, AuditLog, summarizeAuditParams, type AuditEntry } from './audit.ts'
@@ -590,7 +590,12 @@ class BridgeController {
 					this.lastError ?? '浏览器控制未启用 —— 在 profile 的 cordis.patch.yml 里给 browser-bridge 配 enabled: true（dsh 0.1.7+ 的宿主也会在设置 → 插件 自动列出本插件开关；0.1.2 及更早的宿主没有这张卡片，只能改配置文件）',
 				))
 			}
-			const result = await server.execute(command, resolved, timeoutMs === undefined ? { signal } : { signal, timeoutMs })
+			const execOptions: BridgeExecuteOptions = {
+				signal,
+				...(timeoutMs === undefined ? {} : { timeoutMs }),
+				...(userInitiated ? { origin: 'panel' as const } : {}),
+			}
+			const result = await server.execute(command, resolved, execOptions)
 			if (sessionId !== undefined) this.noteSession(sessionId, resolved, result)
 			const elapsedMs = Date.now() - started
 			this.recordAudit({ command, tabId, params: summary, ok: true, durationMs: elapsedMs })

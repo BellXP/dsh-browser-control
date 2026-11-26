@@ -3,6 +3,9 @@
 
 const $ = (id) => document.getElementById(id);
 
+/** The switch state shown by the last render; the button toggles it. */
+let lastLocked = false;
+
 const STATE_TEXT = {
 	open: '已连接',
 	connecting: '连接中…',
@@ -30,18 +33,19 @@ function render(status) {
 	btn.classList.toggle('danger', connected);
 	btn.dataset.connected = String(connected);
 	const locked = status.locked === true;
-	// 冻结有两种来路：用户真按了锁，或者扩展读不出锁状态、按冻结处理（fail-closed）。
-	// 后者也说「点『已锁定』解除」会让用户以为是自己误触，所以分开写。
+	// 只读有两种来路：用户真按了开关，或者扩展读不出开关状态、按只读处理（fail-closed）。
+	// 后者也说「点『已只读』解除」会让用户以为是自己误触，所以分开写。
 	const unreadable = locked && status.lockReason === 'unreadable';
+	lastLocked = locked;
 	const lock = $('lock');
-	lock.textContent = locked ? '已锁定' : '锁定';
+	lock.textContent = locked ? '已只读' : '只读';
 	lock.classList.toggle('locked', locked);
 	const hint = $('lockhint');
 	hint.textContent = unreadable
-		? '锁状态读不出来（chrome.storage.local 失败），已按冻结处理。点这里可以重新写入明确状态。'
+		? '只读开关的状态读不出来（chrome.storage.local 失败），已按只读处理。点这里可以重新写入明确状态。'
 		: locked
-			? '已冻结：扩展会拒绝模型的全部浏览器操作（连接保持）。点「已锁定」解除。'
-			: '锁定 = 冻结模型的全部浏览器操作，连接不断。解锁只能在这里点。';
+			? '只读模式：模型只能看（读页面、截图、列标签页），不能动；你自己在 dsh 侧栏「实时浏览器」里的操作不受影响，连接保持。点「已只读」解除。'
+			: '只读 = 只拦模型：开启后模型仍能读页面，但点击、输入、导航、滚动都会被拒；你自己的操作不受影响。解除只能在这里点。';
 	hint.className = locked ? 'lockhint on' : 'lockhint';
 	const errorBox = $('error');
 	errorBox.textContent = status.lastError ?? '';
@@ -65,10 +69,9 @@ $('reconnect').addEventListener('click', async () => {
 });
 
 // Single click: opening the popup is already a deliberate user gesture, and a
-// panic switch that needs a second click is a panic switch with a delay.
+// read-only switch that needs a second click is a read-only switch with a delay.
 $('lock').addEventListener('click', async () => {
-	const locked = $('lock').textContent === '已锁定';
-	await chrome.runtime.sendMessage({ type: 'lockSet', locked: !locked });
+	await chrome.runtime.sendMessage({ type: 'lockSet', locked: !lastLocked });
 	refresh();
 });
 

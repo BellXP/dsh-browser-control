@@ -80,7 +80,7 @@ BrowserSkill 明确没有：PDF 导出、网络日志整体导出与过滤、con
 | 层 | 谁能开 / 关 | 拦在哪 | 覆盖范围 |
 |---|---|---|---|
 | `readOnly` / `allowScript`（profile 配置） | 用户改配置；模型读得到同一份文件，所以**不是**边界 | `BridgeController.execute()`，命令发给扩展**之前**；Live Browser 面板（v1.9.0）以 `origin: 'panel'` 跳过这道闸门并在审计里标 `[panel]`——只读档的意思是「模型别动」，不是「用户别动」 | 模型那条工具面；HTTP 面不受约束 |
-| 扩展弹窗「锁定」 | **只有用户**：只能通过扩展页面的 `chrome.runtime` 消息设置，manifest 没有 `externally_connectable`，桥侧没有任何解锁命令 | `runCommand` 入口，handler 一个都不执行 | 全部命令（含只读），零 CDP 派发 |
+| 扩展弹窗「只读」（v1.7.6 起；旧名「锁定」） | **只有用户**：只能通过扩展页面的 `chrome.runtime` 消息设置，manifest 没有 `externally_connectable`，桥侧没有任何解除命令 | `runCommand` 入口：会改变页面或浏览器状态的命令 handler 一个都不执行；读命令与带 `origin: 'panel'`（dsh 侧栏面板，桥只给它自己的 Typert 服务打这个标记）的命令放行 | 模型的写命令，零 CDP 派发；模型的读命令与用户在面板里的操作不受影响 |
 | profile 里 `enabled: false` / 拔连接 | 用户，但模型也能改（同一个文件） | 插件不监听 | 整个桥 |
 
 还缺的一层是 issue #17 提的**接管/防误触浮层**：它是「告知 + 别碰这一页」，不是停止——停止那一层已经由弹窗锁覆盖，`browser_hold` 若自称能停模型就是冒充边界。第 2 层的 `sidePanel`（帧流 + 当前动作 + 一键接管）是同一方向的完整版，但要先加权限；浮层零新权限，可以先到。做的时候有一条必须一起设计：**浮层是往页面里注入元素**，而 `content` / `snapshot` / `find` 照 DOM 抓，不排除自己的子树就会让模型读到「模型正在操作此页」这句话本身。

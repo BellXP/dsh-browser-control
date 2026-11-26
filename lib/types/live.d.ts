@@ -36,6 +36,7 @@ export interface LiveBridgeStatus {
     browser: string | undefined;
     lastError: string | undefined;
     pendingCommands: number;
+    /** The profile's read-only gate (`readOnly`): binds the agent's tools, never the panel. */
     readOnly: boolean;
 }
 /** What the panel needs from the bridge controller (structural, so the class stays module-private). */
@@ -59,8 +60,15 @@ export declare class LiveViewService extends Service {
     constructor(ctx: Context, bridge: LiveBridge);
     private run;
     private cdp;
-    /** Bridge link state plus the read-only flag (the panel disables its controls). */
-    status(): LiveBridgeStatus;
+    /**
+     * Bridge link state plus both read-only flags: `readOnly` is the profile's gate on
+     * the agent's tools, `extensionReadOnly` the popup's switch (extension v1.7.6+,
+     * reported by browser.info; false when the extension is offline or older). Neither
+     * applies to the panel — the panel says so instead of disabling its controls.
+     */
+    status(): Promise<LiveBridgeStatus & {
+        extensionReadOnly: boolean;
+    }>;
     /** Every tab of the connected browser, plus the one that is active right now. */
     listTabs(): Promise<{
         activeTabId?: number;

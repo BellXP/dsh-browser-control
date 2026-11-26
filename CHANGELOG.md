@@ -2,7 +2,9 @@
 
 ## v1.9.0 (2026-11-26)
 
-**右侧栏「实时浏览器」面板（纯插件发版；扩展仍是 1.7.5，不用重装）。** 新增 Web 客户端半边：右侧栏向导多一张 Live Browser 卡片，显示扩展接管的真实标签页的画面，并可直接操作——标签页切换、地址栏、后退/前进/刷新、在画面上点击、滚轮滚动、文字与按键。面板经官方 Typert 远程（`browser-live`）走同一条桥和同一本审计账本（标 `[panel]`）。**只读档只绑 agent 的工具**：面板里的操作是你本人的动作，不受它限制——打开只读档 = 「只许看、不许 agent 动我的浏览器」。扩展弹窗的「锁定」仍然连面板一起停（扩展分不清命令来自谁）。
+**右侧栏「实时浏览器」面板（插件发版 + 扩展 1.7.6，扩展需要重新加载一次）。** 新增 Web 客户端半边：右侧栏向导多一张 Live Browser 卡片，显示扩展接管的真实标签页的画面，并可直接操作——标签页切换、地址栏、后退/前进/刷新、在画面上点击、滚轮滚动、文字与按键。面板经官方 Typert 远程（`browser-live`）走同一条桥和同一本审计账本（标 `[panel]`）。**只读档只绑 agent 的工具**：面板里的操作是你本人的动作，不受它限制——打开只读档 = 「只许看、不许 agent 动我的浏览器」。扩展弹窗里的开关改成同一个意思（见下）。
+
+- **扩展 1.7.6：弹窗「锁定」改为「只读」**。开着时模型的写命令在 `runCommand` 入口被拒（文案写明读命令仍可用、只能由用户在弹窗解除），读命令照常；命令帧顶层带 `origin: 'panel'` 的（dsh 侧栏面板里用户自己的操作）照常。桥只给面板的 Typert 服务打这个标记，`/api/command` 从不转发请求体里的 `origin`，塞在 `params` 里的也不算，所以模型无法冒充面板。`browser.info` 多返回 `readOnly`，面板据此提示「扩展只读开关已开」；徽标由 `LOCK` 改为 `RO`；存储键沿用 `hardLock`，老用户之前按下的锁升级后自然变成只读。旧扩展（≤1.7.5）配新插件照样能连，只是弹窗开关仍是全部冻结的老行为。`verify/verify_hard_lock.mjs` 按新语义重写（假 Chrome 里逐条扫 COMMANDS 表分类、面板放行、SW 重启、fail-closed），`verify_extension_e2e.mjs` 改为「开着时读 200、写 502」。
 
 - **客户端半边（`client/index.js`）**：`package.json` 加 `dsh.client`（`platform: web`，在 `@deepseek-ai/dsh-client-ui-sidebar-right` 之后激活）与 `./client` 导出；ModuleLoader 直接执行，React 来自模块表，样式只用 `--dsw-alias-*` token，文案走 `ctx.locale`（zh/en）。注册 `sidebarRightTabs` 类型 `live-browser`（guide 入口 order 35，`keepMounted` 保留面板状态）与 `sidebar.right.pane.tab` 槽位；面板的刷新快捷键绑到重新截图。画面是定时截图（默认 1.5 s），不是视频流。
 - **宿主半边（`src/live.ts`）**：`LiveViewService` + 13 个严格描述符（status / listTabs / navigate / openTab / activateTab / history / reload / screenshot / viewport / click / scroll / press / typeText），全部转发到 `BridgeController.execute`（`cdp` 用于 `Page.getLayoutMetrics`、`Input.dispatchMouseEvent` 三连、`Input.insertText`、`Page.reload`）。`execute()` 新增第 5 个参数 `options.origin`：`'panel'` 时跳过只读/禁脚本闸门并在审计里标 `[panel]`；模型的工具从不传它，也没有工具能传到它。结果经 `compact()` 去掉 undefined 自有属性（网关边界校验会拒）。`BridgeController.liveStatus()` 给面板一份不含 token 的链路快照。只在 `typert` 服务存在时挂载（`ctx.inject(['typert'])`）。

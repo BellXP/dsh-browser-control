@@ -223,6 +223,24 @@ const READ_TOOLS = [
     && policyRefusal(c, { readOnly: true, allowScript: true }) === undefined)
   check(`对账：${all.length} 条命令每条都有交代（白名单放行 或 只读档拒绝）`, unclassified.length === 0,
     unclassified.join(',') || 'none')
+  // v1.7.6：弹窗的「只读」开关是本机只读档在扩展侧的同款，只拦模型、不拦面板。两道闸
+  // 对「什么算只读」的判断必须一致，所以扩展的 READ_ONLY_COMMANDS 与插件白名单逐条对账；
+  // 参数级规则（hold 只放 status、wait 不带 fn）与 origin:'panel' 的放行也要在源码里。
+  const roTable = bg.match(/const READ_ONLY_COMMANDS = new Set\(\[([\s\S]*?)\]\)/)
+  const extReadOnly = roTable ? [...roTable[1].matchAll(/'([^']+)'/g)].map((m) => m[1]) : []
+  check('对账：扩展的 READ_ONLY_COMMANDS 读得出来', extReadOnly.length >= 10, `读出 ${extReadOnly.length} 条`)
+  const missingInExt = [...READ_ONLY_ALLOWED].filter((c) => !extReadOnly.includes(c))
+  const extraInExt = extReadOnly.filter((c) => !READ_ONLY_ALLOWED.has(c))
+  check('对账：扩展只读命令表与插件白名单逐条一致（弹窗只读开关 = 本机只读档）',
+    missingInExt.length === 0 && extraInExt.length === 0, [...missingInExt, ...extraInExt].join(',') || 'identical')
+  check(`对账：扩展只读开关放行 origin:'panel'（面板是用户的手），hold/wait 按参数判`,
+    /origin !== 'panel' && !isReadOnlyCall\(command, params\)/.test(bg)
+    && /command === 'hold'\) return params\?\.action === 'status'/.test(bg)
+    && /command === 'wait'\) return !\(/.test(bg)
+    && /msg\.origin\)/.test(bg))
+  const src = await readFile(new URL('../src/server.ts', import.meta.url), 'utf8')
+  check('对账：桥只在 origin 为 panel 时把它写进命令帧，/api/command 从不转发 origin',
+    /options\.origin === 'panel'/.test(src) && !/body\.origin/.test(src))
   const allowed = all.filter((c) => READ_ONLY_ALLOWED.has(c))
   console.log(`      只读档放行 ${allowed.length} 条：${allowed.join(', ')}`)
   console.log(`      只读档拒绝 ${all.length - allowed.length} 条（写操作与改浏览器状态的）`)

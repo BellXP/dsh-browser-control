@@ -26,7 +26,7 @@ A dsh plugin plus a Chrome extension. The extension dials back to dsh over loopb
 No headless browser, no copying login state around, no MCP — it drives the signed-in Chrome on your screen.
 
 - 30 `browser_*` tools, usable from natural language
-- Visible: tabs the agent opens join a `DSH` group; one-click lock in the extension popup
+- Visible: tabs the agent opens join a `DSH` group; one-click read-only switch in the extension popup (gates the agent only)
 - Live Browser panel in the right Sidebar: watch and drive the tab the extension controls (v1.9.0)
 - Local gates: read-only / no arbitrary JS / upload allowlist
 - Auditable: in-memory audit trail plus a cross-restart journal
@@ -39,6 +39,8 @@ No headless browser, no copying login state around, no MCP — it drives the sig
 Download [DSH-Browser-Control-v1.7.5.zip](https://github.com/angelky7/dsh-browser-control/releases/download/v1.7.14/DSH-Browser-Control-v1.7.5.zip), unzip to a fixed folder (don't delete it), open `chrome://extensions` → enable Developer mode → "Load unpacked" → pick that folder. Chrome 116+; a green dot means connected.
 
 > Already on v1.7.2? No reinstall needed: the feature updates in v1.7.3–v1.7.10 do not touch the extension.
+>
+> The extension that goes with plugin v1.9.0 is **1.7.6** (the popup's Read-only switch: gates the agent, not your own panel actions). It is not packaged as a release yet — load the repository's `extension/` folder with "Load unpacked"; if you already run an older build, press "Reload" on it in `chrome://extensions` and confirm the version reads 1.7.6. An older extension still connects to the new plugin, but its popup switch keeps the old freeze-everything behaviour.
 
 ### 2. dsh plugin
 
@@ -73,7 +75,7 @@ Since v1.9.0 the right Sidebar's guide has a **Live Browser** card. It shows the
 - Back / Forward / Reload page / Refresh view / Auto refresh; **Open in browser** jumps to the system browser
 - Click the picture to click the page, the wheel scrolls it; the bottom box sends text to the page (Enter sends and presses Enter, Shift+Enter sends only), next to Esc / ⌫ / Tab
 
-The panel uses the same bridge as the `browser_*` tools (Typert remote `browser-live`), and its actions land in the same audit trail. **Read-only mode gates the agent's tools only**: your own actions in the panel are not restricted, so turning read-only on means "I may look and act; the agent may not touch my browser". The extension popup's lock stops the panel too. The picture is a periodic screenshot, not a video stream; when the extension is offline the panel says so.
+The panel uses the same bridge as the `browser_*` tools (Typert remote `browser-live`), and its actions land in the same audit trail. **Read-only mode gates the agent's tools only**: your own actions in the panel are not restricted, so turning read-only on means "I may look and act; the agent may not touch my browser". The extension popup's **Read-only** switch means the same thing (extension 1.7.6+): while it is on the agent can still read pages, but clicks, typing, navigation and scrolling are refused, and your own panel actions go through. The picture is a periodic screenshot, not a video stream; when the extension is offline the panel says so.
 
 ## Safety gates
 

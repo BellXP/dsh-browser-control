@@ -168,25 +168,25 @@ Chrome 对非前台标签页的 `setTimeout` 强制钳制到 ≥1s。长任务�
 | effectState | set/remove 都是幂等的（重设同一颗、重复删同一颗，结果不变），按「重试会不会造成额外损害」的判据算只读；但它们**改浏览器状态**，只读档拒——两张表各管各的语义 |
 | 只读档 | `cookies.get` 放行；`set` / `remove` 默认拒（不在白名单里，拒因走通用文案） |
 
-## 本地硬锁（扩展弹窗的「锁定」）
+## 本地只读开关（扩展弹窗的「只读」，v1.7.6 起）
 
-用户在扩展弹窗里单击「锁定」后，本机进入冻结状态，契约如下：
+用户在扩展弹窗里单击「只读」后，本机对模型进入只读状态。它的含义是「**模型别动我的浏览器**」，不是「谁都别动」：读类命令照常，用户自己在 dsh 侧栏 Live Browser 面板里的操作照常。开关的状态落在 `chrome.storage.local.hardLock`（沿用旧键，所以老用户之前按下的「锁定」在升级后自然变成只读）。
 
 | 维度 | 行为 |
 |---|---|
-| 连接 | **保持**。WebSocket 不断、心跳照发，`hello` 照常上报；调用方看到的是「连得上但被冻结」 |
-| 命令 | **全部拒绝**，包括只读命令（`content` / `snapshot` / `screenshot` / `tabs.list`……）。拒绝发生在 `runCommand` 的入口，任何 handler 都不会被调用，也就是**零 CDP 调用、零标签页改动** |
-| 错误文案 | 点名被拦的命令，并写明「解锁只能由用户在浏览器工具栏的扩展弹窗里点『已锁定』完成」与「不要重试」 |
-| 解锁通道 | 只有扩展弹窗的 `chrome.runtime` 消息（`lockSet`）。桥接侧没有解锁命令；`lockSet` 不在扩展的 `COMMANDS` 表里，所以模型塞一条同名命令帧只会被当作普通命令拦下 |
-| 持久化 | 状态落在 `chrome.storage.local.hardLock`。MV3 回收 service worker 后重新读盘，**不会**因为内存标志丢失而解冻 |
-| 读盘失败 | **按锁定处理**（fail-closed）。panic switch 唯一不能有的失败方式是「以为锁着其实没锁」，所以读不出状态时宁可拒绝；此时拒绝文案与 `bridgeStatus.lockReason` 都写「读不出锁状态」而不是「已被用户锁定」，不冤枉用户，也不误导模型。下一次调用会重读，存储恢复后自动放行。用户仍能从弹窗解锁——那条通道走内存里的 `setHardLock`，不依赖这次失败的读 |
-| 徽标 | 冻结期间显示红色 `LOCK`；恢复后按连接状态显示 `ON` / `…` / `OFF`。`init()` 会**先读锁再连接**，所以 service worker 刚唤醒、一条命令都还没跑的时候图标就是 `LOCK`，而不是让人误判健康的绿色 `ON` |
+| 连接 | **保持**。WebSocket 不断、心跳照发，`hello` 照常上报；调用方看到的是「连得上但只读」 |
+| 写命令 | **全部拒绝**：`click` / `input` / `press` / `scroll` / `nav` / `tabs.*`（除 `list`）/ `eval` / `cookies.set`… 拒绝发生在 `runCommand` 的入口，任何 handler 都不会被调用，也就是**零 CDP 调用、零标签页改动** |
+| 读命令 | **放行**，白名单与插件只读档 `READ_ONLY_ALLOWED`（src/policy.ts）逐条一致（`verify_policy` 对账），参数级规则也一致：`hold` 只放 `action: "status"`，`wait` 不带 `fn`（谓词是任意 JS） |
+| 面板 | 命令帧顶层带 `origin: 'panel'` 的放行——那是 dsh 侧栏 Live Browser 面板里用户自己的操作。桥只给它自己的 Typert 服务（`src/live.ts`）打这个标记；`/api/command` 从不转发请求体里的 `origin`，模型塞在 `params` 里的也不算（只认帧顶层）。所以模型没有办法冒充面板 |
+| 错误文案 | 点名被拦的命令，写明「读页面、截图、列标签页这类只读命令仍然可用」与「解除只能由用户在浏览器工具栏的扩展弹窗里点『已只读』完成」以及「不要重试」 |
+| 解除通道 | 只有扩展弹窗的 `chrome.runtime` 消息（`lockSet`）。桥接侧没有解除命令；`lockSet` 不在扩展的 `COMMANDS` 表里，所以模型塞一条同名命令帧只会被当作未知命令 |
+| 持久化 | 状态落在 `chrome.storage.local.hardLock`。MV3 回收 service worker 后重新读盘，**不会**因为内存标志丢失而失效 |
+| 读盘失败 | **按只读处理**（fail-closed）。用户设下的否决唯一不能有的失败方式是「以为开着其实没开」，所以读不出状态时宁可拒绝写命令；此时拒绝文案与 `bridgeStatus.lockReason` 都写「读不出开关状态」而不是「已被用户设为只读」，不冤枉用户，也不误导模型。下一次调用会重读，存储恢复后自动放行。用户仍能从弹窗解除——那条通道走内存里的 `setHardLock`，不依赖这次失败的读 |
+| 徽标 | 只读期间显示红色 `RO`；恢复后按连接状态显示 `ON` / `…` / `OFF`。`init()` 会**先读开关再连接**，所以 service worker 刚唤醒、一条命令都还没跑的时候图标就是 `RO`，而不是让人误判健康的绿色 `ON` |
+| `browser.info` | 返回 `readOnly: true/false`，Live Browser 面板与模型的 `browser_info` 看到同一个事实 |
 | 模型看到的错误 | 结果帧只有一个 `error` 字符串可以带信息，所以扩展把 `browser-locked-by-user:` / `browser-lock-unreadable:` 写在文本最前面，`classify()` 认前缀：`code=locked_by_user` 或 `lock_unreadable`，`effectState=not_started`（**写操作也是**，因为拦截发生在 handler 之前，这是可以确定的真相），标记本身从给模型的那句话里剥掉。认不出前缀就退成 `command_failed` + 写操作 `unknown` + 「通常是选择器没命中」那种误导 hint，所以 `verify_errors` 对账两侧字面量逐字一致 |
-| 协议 | 不动 `PROTOCOL_VERSION`：冻结是本机开关，不是帧契约的一部分。老扩展不会发这两个前缀，因此不存在「静默降级读不到」的版本错位——它压根没有锁 |
-
-之所以放在客户端而不是桥接侧：桥的唯一实际边界是回环地址 + token，而 token 明写在 profile 的
-`cordis.patch.yml` 里——模型读得到、也改得动，还能重启桥。把「冻结」放进浏览器、只留一个人工通道，
-才是模型够不到的那一层。
+| 协议 | 不动 `PROTOCOL_VERSION`：开关是本机状态，不是帧契约的一部分；命令帧多出来的可选字段 `origin` 老扩展会忽略，新插件配老扩展时弹窗开关仍是「全部冻结」的老行为（1.7.5 及以前） |
+| 台子 | `verify/verify_hard_lock.mjs`（在假 Chrome 里跑真实 background.js：逐条扫 COMMANDS 表分类、面板放行、SW 重启、fail-closed）；`verify_extension_e2e.mjs`（真桥 + 真扩展代码：开着时读 200、写 502 + locked_by_user/not_started） |
 
 ## 文件上传（`browser_upload`，v1.7.11）
 

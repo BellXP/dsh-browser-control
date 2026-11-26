@@ -28,8 +28,8 @@ const cases = [
   ["cleanup", "EPERM: operation not permitted, unlink 'dsh-browser-shots/shot.png'", "command_failed", "unknown"],
   // 扩展弹窗的锁：连写操作也确定一条命令都没发出，所以是 not_started，
   // 不能因为 click 在写清单里就报 unknown（那等于说「动作可能已经落到页面上」）。
-  ["click", "browser-locked-by-user: 本机扩展已被用户锁定：命令 click 被拦下", "locked_by_user", "not_started"],
-  ["tabs.close", "browser-lock-unreadable: 扩展读不出本地锁的状态，已按冻结处理", "lock_unreadable", "not_started"],
+  ["click", "browser-locked-by-user: 本机扩展已被用户设为只读：命令 click 会改变页面或浏览器状态，被拦下", "locked_by_user", "not_started"],
+  ["tabs.close", "browser-lock-unreadable: 扩展读不出本地只读开关的状态，已按只读处理", "lock_unreadable", "not_started"],
 ];
 for (const [cmd, msg, code, effect] of cases) {
   const e = classify(cmd, new Error(msg));
@@ -190,11 +190,11 @@ check("toJSON() 的 hint 不重复出现在 error 字段里",
   check('对账：扩展里写着与插件侧逐字相同的两个锁前缀',
     bg.includes(`'${LOCKED_BY_USER_MARKER}'`) && bg.includes(`'${LOCK_UNREADABLE_MARKER}'`),
     `${LOCKED_BY_USER_MARKER} / ${LOCK_UNREADABLE_MARKER}`);
-  const stripped = classify('click', new Error(`${LOCKED_BY_USER_MARKER} 本机扩展已被用户锁定：命令 click 被拦下`));
+  const stripped = classify('click', new Error(`${LOCKED_BY_USER_MARKER} 本机扩展已被用户设为只读：命令 click 会改变页面或浏览器状态，被拦下`));
   check('锁标记不留在给模型的那句话里（但 [code] 与文案都在）',
     !stripped.message.includes(LOCKED_BY_USER_MARKER)
     && stripped.message.startsWith('[locked_by_user]')
-    && /已被用户锁定/.test(stripped.message), stripped.message.slice(0, 90));
+    && /已被用户设为只读/.test(stripped.message), stripped.message.slice(0, 90));
   check('锁拒绝的 detail 也不带标记（HTTP 面的 error 字段是原始描述）',
     !stripped.detail.includes(LOCKED_BY_USER_MARKER), stripped.detail.slice(0, 60));
 }

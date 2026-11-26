@@ -131,9 +131,9 @@ function setBadge(text, color) {
 
 function setState(state) {
 	wsState = state;
-	// While the local lock is on it owns the badge: "connected but frozen" must
-	// not look like a healthy green ON.
-	if (hardLocked) { setBadge('LOCK', '#dc2626'); return; }
+	// While the popup's read-only switch is on it owns the badge: "connected but
+	// read-only for the agent" must not look like a healthy green ON.
+	if (hardLocked) { setBadge('RO', '#dc2626'); return; }
 	if (state === 'open') setBadge('ON', '#16a34a');
 	else if (state === 'connecting') setBadge('…', '#d97706');
 	else setBadge('OFF', '#6b7280');
@@ -249,26 +249,64 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 /* ------------------------------------------------------------- local lock */
 
 /**
- * Local hard lock ("panic switch"): while on, every command from the bridge is
- * refused before it reaches a handler, and the WebSocket stays connected — so a
- * caller sees "reachable but frozen" instead of a dead link it might retry.
+ * Local read-only switch (popup button): while on, every command from the bridge
+ * that would change the page or the browser is refused before it reaches a handler;
+ * reads keep working and the WebSocket stays connected — so the agent sees
+ * "reachable but read-only" instead of a dead link it might retry.
  *
- * Only the popup can toggle it, and that is structural rather than a promise:
+ * It binds the agent, not the user (v1.7.6). A command frame the bridge marked
+ * `origin: 'panel'` is the user's own action in dsh's Live Browser tab — their hand,
+ * not the model's — so it passes. The bridge sets that mark only for the panel's own
+ * Typert service; no tool and no HTTP caller can reach it (src/server.ts never
+ * forwards an origin from `/api/command`), so the model cannot talk its way past
+ * the switch by sending one.
+ *
+ * Only the popup can toggle the switch, and that is structural rather than a promise:
  * the bridge speaks over the WebSocket, while this gate is set through a
  * `chrome.runtime` message, which only an extension page can post (the manifest
- * declares no `externally_connectable`). Nothing on the bridge side unlocks it.
+ * declares no `externally_connectable`). Nothing on the bridge side turns it off.
  *
  * The flag is persisted in chrome.storage.local because MV3 evicts the service
  * worker after ~30s idle: an in-memory flag would silently lapse between two
- * commands, which is the one failure mode a panic switch cannot have.
+ * commands, which is the one failure mode a user-set veto cannot have.
  */
 const HARD_LOCK_KEY = 'hardLock';
-/** 拒绝文案的两种来源：真的是用户锁的，还是锁状态读不出来、按冻结处理。 */
+/** 拒绝文案的两种来源：真的是用户按了锁，还是锁状态读不出来、按冻结处理。 */
 const HARD_LOCK_REASON_MARKER = 'browser-locked-by-user:';
 const HARD_LOCK_UNREADABLE_MARKER = 'browser-lock-unreadable:';
 let hardLocked = false;
 let hardLockLoaded = false;
 let hardLockReason = 'user';
+
+/**
+ * Commands the read-only switch still lets through for the agent — the same
+ * whitelist as `READ_ONLY_ALLOWED` in src/policy.ts, one for one
+ * (`verify/verify_policy.mjs` reconciles the two), plus the same two
+ * parameter-level rules: `hold` only as `status`, and `wait` only without `fn`
+ * (a predicate runs arbitrary JS inside the page, which is a write by any name).
+ */
+const READ_ONLY_COMMANDS = new Set([
+	// 身份与链路探测
+	'ping', 'browser.info',
+	// 读页面
+	'content', 'find', 'snapshot', 'screenshot', 'pdf', 'wait',
+	// 读扩展采集到的缓冲
+	'tabs.list', 'console.log', 'network.log',
+	// 读窗口清单（open/update/close/moveTab 改窗口，不在此列）
+	'windows.list',
+	// 读浏览器自己的状态（cookie 是凭据，但 get 不改任何东西；set/remove 不在此列）
+	'cookies.get',
+	// 读性能计数器（emulate 会改页面加载行为，不在此列）
+	'metrics',
+]);
+
+/** Whether this call only reads, by the same judgement the plugin's read-only gate uses. */
+function isReadOnlyCall(command, params) {
+	if (command === 'hold') return params?.action === 'status';
+	if (!READ_ONLY_COMMANDS.has(command)) return false;
+	if (command === 'wait') return !(typeof params?.fn === 'string' && params.fn.trim().length > 0);
+	return true;
+}
 
 /** Read the persisted flag once per worker lifetime. */
 async function syncHardLock() {
@@ -279,20 +317,20 @@ async function syncHardLock() {
 		hardLockReason = 'user';
 		hardLockLoaded = true;
 	} catch (err) {
-		// 读不到锁的状态时按「锁着」处理。panic switch 唯一的失败方式就是「以为锁着
-		// 其实没锁」，而 fail-open 恰好是那种失败；这里宁可让模型多做一次询问。
+		// 读不到开关的状态时按「只读」处理。用户设下的否决唯一不能有的失败方式就是
+		// 「以为开着其实没开」，而 fail-open 恰好是那种失败；这里宁可让模型多做一次询问。
 		// 不置 hardLockLoaded：下一条命令再读一次，存储恢复后自愈。
 		// 用户仍然能解：弹窗那条通道走的是内存里的 setHardLock，不依赖这次读。
 		hardLocked = true;
 		hardLockReason = 'unreadable';
-		lastError = `读取本地锁失败，已按「锁定」处理：${err.message}`;
+		lastError = `读取本地只读开关失败，已按「只读」处理：${err.message}`;
 	}
 	// A worker that came back after eviction has not painted the badge yet; do it
-	// now so "locked" is visible before the first command rather than after it.
+	// now so "read-only" is visible before the first command rather than after it.
 	if (hardLocked) setState(wsState);
 }
 
-/** Persist and apply the lock; called only from the popup message handler. */
+/** Persist and apply the switch; called only from the popup message handler. */
 async function setHardLock(locked) {
 	hardLocked = Boolean(locked);
 	hardLockLoaded = true;
@@ -303,18 +341,19 @@ async function setHardLock(locked) {
 }
 
 /**
- * Refusal text the agent actually reads; it must say who can undo this.
+ * Refusal text the agent actually reads; it must say who can undo this and what
+ * still works.
  *
  * 前缀是给插件侧 `classify()` 认的线协议（`src/errors.ts` 里有一份同样的字面量，
  * `verify/verify_errors.mjs` 对账两边），所以文案怎么改都不能动前缀。
  */
 function hardLockRefusal(command) {
 	if (hardLockReason === 'unreadable') {
-		return `${HARD_LOCK_UNREADABLE_MARKER} 扩展读不出本地锁的状态（chrome.storage.local 失败），已按「冻结」处理：命令 ${command} 被拦下，没有向浏览器发出任何操作。`
-			+ `这不是用户按了锁定，请如实告诉用户原因；下一次调用会重新读一次锁状态，存储恢复后自动放行，所以现在重试是安全的，但不要循环重试。`;
+		return `${HARD_LOCK_UNREADABLE_MARKER} 扩展读不出本地只读开关的状态（chrome.storage.local 失败），已按「只读」处理：命令 ${command} 会改变页面或浏览器状态，被拦下，没有向浏览器发出任何操作。`
+			+ `读页面、截图、列标签页这类只读命令仍然可用。这不是用户按了开关，请如实告诉用户原因；下一次调用会重新读一次状态，存储恢复后自动放行，所以现在重试是安全的，但不要循环重试。`;
 	}
-	return `${HARD_LOCK_REASON_MARKER} 本机扩展已被用户锁定：命令 ${command} 被拦下，没有向浏览器发出任何操作。`
-		+ `解锁只能由用户在浏览器工具栏的扩展弹窗里点「已锁定」完成；在那之前请先与用户确认，不要重试。`;
+	return `${HARD_LOCK_REASON_MARKER} 本机扩展已被用户设为只读：命令 ${command} 会改变页面或浏览器状态，被拦下，没有向浏览器发出任何操作。`
+		+ `读页面、截图、列标签页这类只读命令仍然可用。解除只能由用户在浏览器工具栏的扩展弹窗里点「已只读」完成；在那之前请先与用户确认，不要重试。`;
 }
 
 /* ------------------------------------------------ cookies（roadmap 第 3 条） */
@@ -797,15 +836,20 @@ async function holdRefusalFor(command, params) {
 function handleBridgeMessage(msg) {
 	if (msg.type === 'ping') { send({ type: 'pong', t: msg.t }); return; }
 	if (msg.type === 'command' && typeof msg.id === 'string') {
-		runCommand(msg.command, msg.params ?? {})
+		// `origin: 'panel'` marks the user's own action in dsh's Live Browser tab (the
+		// bridge sets it for the panel's Typert service only); see the read-only switch.
+		runCommand(msg.command, msg.params ?? {}, msg.origin)
 			.then((result) => send({ type: 'result', id: msg.id, ok: true, result }))
 			.catch((err) => send({ type: 'result', id: msg.id, ok: false, error: String((err && err.message) || err) }));
 	}
 }
 
-async function runCommand(command, params) {
+async function runCommand(command, params, origin) {
 	await syncHardLock();
-	if (hardLocked) throw new Error(hardLockRefusal(command));
+	// The popup's read-only switch binds the agent: a command that would change the
+	// page or the browser is refused before any handler runs, reads keep working, and
+	// the user's own panel commands pass (their hand, not the model's).
+	if (hardLocked && origin !== 'panel' && !isReadOnlyCall(command, params)) throw new Error(hardLockRefusal(command));
 	const handler = COMMANDS[command];
 	if (!handler) throw new Error(`unknown command: ${command}`);
 	// 接管浮层上的「中止操作」：只拦写页面那四条，且只在页面上的浮层还在时拦
@@ -1507,7 +1551,10 @@ async function cmdCdp(params) {
 }
 
 async function cmdBrowserInfo() {
-	return { client: 'dsh-browser-extension', version: EXT_VERSION, browser: helloInfo };
+	await syncHardLock();
+	// `readOnly` is the popup's read-only switch (v1.7.6): the Live Browser panel shows it,
+	// and the agent's browser_info sees the same fact the refusal text describes.
+	return { client: 'dsh-browser-extension', version: EXT_VERSION, browser: helloInfo, readOnly: hardLocked };
 }
 
 /**
@@ -3089,11 +3136,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 		return false;
 	}
 	if (msg?.type === 'lockSet') {
-		// The lock is set from the popup only (see the local-lock section): this
-		// channel cannot be reached by the bridge, so "unlock from the browser"
-		// is enforced by where the code lives, not by who asks nicely.
-		// Fail closed: only an explicit `locked: false` unlocks, so a malformed
-		// message cannot quietly unfreeze the browser.
+		// The read-only switch is set from the popup only (see the local read-only
+		// switch section): this channel cannot be reached by the bridge, so "turn it
+		// off from the browser" is enforced by where the code lives, not by who asks
+		// nicely. Fail closed: only an explicit `locked: false` turns it off, so a
+		// malformed message cannot quietly hand the agent the browser back.
 		setHardLock(msg.locked !== false)
 			.then((locked) => sendResponse({ locked }))
 			.catch((err) => sendResponse({ locked: hardLocked, error: String((err && err.message) || err) }));

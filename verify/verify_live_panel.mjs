@@ -39,9 +39,11 @@ check(plugin.inject.includes("remote") && plugin.inject.includes("sidebarRightTa
 
 // ---- 2) the service against a fake bridge
 const calls = [];
+let connected = false;
 const fakeBridge = {
   async execute(command, params, signal, timeoutMs, options) {
     calls.push({ command, params, timeoutMs, aborted: signal?.aborted, origin: options?.origin });
+    if (command === "browser.info") return { client: "fake", version: "1.7.6", readOnly: true };
     if (command === "tabs.list") return { count: 2, activeTabId: 5, tabs: [{ id: 5, url: "https://a.example/", title: "A", active: true }, { id: 6 }] };
     if (command === "nav") return { tabId: params.tabId ?? 5, url: params.url, title: "N", siteUnreachable: { reason: "dns" } };
     if (command === "tabs.open") return { tabId: 9, url: params.url, title: "New" };
@@ -50,7 +52,7 @@ const fakeBridge = {
     return {};
   },
   requireExtensionCommand(command, since) { calls.push({ gate: command, since }); },
-  liveStatus: () => ({ listening: true, extensionConnected: false, extensionVersion: undefined, browser: undefined, lastError: undefined, pendingCommands: 0, readOnly: false }),
+  liveStatus: () => ({ listening: true, extensionConnected: connected, extensionVersion: connected ? "1.7.6" : undefined, browser: undefined, lastError: undefined, pendingCommands: 0, readOnly: false }),
 };
 const ctx = new Context();
 const svc = new LiveViewService(ctx, fakeBridge);
@@ -58,9 +60,14 @@ check(typeof svc.typertRemote === "object", "service carries the typertRemote bi
 
 const hasUndefined = (value) => JSON.stringify(value, (_k, v) => (v === undefined ? "<<undefined>>" : v)).includes("<<undefined>>");
 const jsonSafeResults = [];
-const status = svc.status();
+const status = await svc.status();
 jsonSafeResults.push(["status", status]);
-check(status.listening === true && status.extensionConnected === false && status.readOnly === false, "status(): listening/connected/readOnly");
+check(status.listening === true && status.extensionConnected === false && status.readOnly === false && status.extensionReadOnly === false, "status(): listening/not connected/readOnly, extensionReadOnly false while offline");
+connected = true;
+const statusLive = await svc.status();
+jsonSafeResults.push(["status (connected)", statusLive]);
+check(statusLive.extensionConnected === true && statusLive.extensionReadOnly === true && calls.at(-1).command === "browser.info", "status(): merges the popup read-only switch from browser.info when connected");
+connected = false;
 const tabs = await svc.listTabs();
 jsonSafeResults.push(["listTabs", tabs]);
 check(tabs.activeTabId === 5 && tabs.tabs.length === 2 && tabs.tabs[1].title === "" && tabs.tabs[1].active === false, "listTabs(): defaults missing title/url/active");

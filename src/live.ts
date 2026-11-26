@@ -80,6 +80,7 @@ export interface LiveBridgeStatus {
 	browser: string | undefined
 	lastError: string | undefined
 	pendingCommands: number
+	/** The profile's read-only gate (`readOnly`): binds the agent's tools, never the panel. */
 	readOnly: boolean
 }
 
@@ -157,9 +158,21 @@ export class LiveViewService extends Service {
 
 	// ------------------------------------------------------------ endpoints
 
-	/** Bridge link state plus the read-only flag (the panel disables its controls). */
-	status(): LiveBridgeStatus {
-		return compact(this.bridge.liveStatus())
+	/**
+	 * Bridge link state plus both read-only flags: `readOnly` is the profile's gate on
+	 * the agent's tools, `extensionReadOnly` the popup's switch (extension v1.7.6+,
+	 * reported by browser.info; false when the extension is offline or older). Neither
+	 * applies to the panel — the panel says so instead of disabling its controls.
+	 */
+	async status(): Promise<LiveBridgeStatus & { extensionReadOnly: boolean }> {
+		const local = compact(this.bridge.liveStatus())
+		if (!local.listening || !local.extensionConnected) return { ...local, extensionReadOnly: false }
+		try {
+			const info = await this.run<{ readOnly?: unknown }>('browser.info', {})
+			return { ...local, extensionReadOnly: info?.readOnly === true }
+		} catch {
+			return { ...local, extensionReadOnly: false }
+		}
 	}
 
 	/** Every tab of the connected browser, plus the one that is active right now. */

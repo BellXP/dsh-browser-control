@@ -73,6 +73,14 @@ export interface BridgeExecuteOptions {
     readonly timeoutMs?: number;
     /** Cancellation from the tool execution; aborting fails the in-flight command. */
     readonly signal?: AbortSignal;
+    /**
+     * `'panel'` marks the user's own action from the Live Browser tab (v1.9.0): the
+     * command frame then carries `origin: 'panel'`, and the extension's read-only
+     * switch (v1.7.6) lets it through. Only BridgeController.execute sets it, for the
+     * panel's Typert service; `/api/command` never forwards one, so no HTTP caller can
+     * claim to be the user.
+     */
+    readonly origin?: 'tool' | 'panel';
 }
 /** What {@link BridgeServer.cleanup} removed. */
 export interface CleanupResult {
