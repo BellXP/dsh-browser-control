@@ -15,12 +15,23 @@ Agent 和上层脚本可以依赖的确定性语义。违反这些契约视为 b
 - 轮询兜底只兜事件看不见的两种情况：**压根不会提交**的导航（链接变成下载、目标被 Chrome 拒载——宽限 1.2s 后拿标签**真正落到的 URL** 与请求的目标比对（忽略 hash 片段与末尾斜杠），不等就报 `loadPending`，不许 0ms 伪装成成功）；和本来就停在目的地的同文档跳转（hash 变化走 `navigatedWithinDocument` 事件，以 sameDocument 到达）。**导航到已经开着的那个地址**仍然算成功（不误报）。
 - 预算耗尽时结果带 `loadPending: true` 与 `pendingUrl`，文案会说「仍在加载」而不是「已显示」，模型不该把没落地的导航当成功；回执 `waitUntil` / `waitedMs` / `readyState` 如实回报（探测失败就不带 readyState——宁可少说也不猜）。
 - **等待结束后的探针也吃同一条死线**（#21）：`location.href`、错误页正文、`readyState` 共享导航预算，等待已用完预算时直接跳过（缺 `readyState` 是诚实的），不再各自加 2s 越过桥的 `budget + 2s` 余量、把准备好的 `loadPending` 换成 `command_timeout/unknown`。`tabs.open` 的 `readyState` 同理。实测：`verify_nav_headroom.mjs`。
-- `tabs.open` 走**同一份**到达等待器；旧开关 `wait:false` 等价 `waitUntil:'none'`。等待期间 debugger 会附着到该标签（「正受控制」横幅出现）——事件判定的代价，`none` 档不附着。
+- `tabs.open` 走**同一份**到达等待器；旧开关 `wait:false` 等价 `waitUntil:'none'`。等待期间 debugger 会附着到该标签（「正受控制」横幅出现）——事件判定的代价，`none` 档不附着；附着在最后一条命令后空闲 20 秒时解除（扩展 1.7.7，见「调试器附着」）。
 - **不保证** SPA 路由或懒渲染内容就绪——导航返回后再用 `browser_wait` 显式等目标元素。实测台：`verify/verify_nav_landing.mjs`（落地诚实性）+ `verify/verify_nav_waituntil.mjs`（分档/事件/回执）。
 - `browser_wait` 的 `fn` 参数是**在页面里执行任意 JS**，因此按脚本调用管：`allowScript:false` 拒，`readOnly:true` 时也拒（只放行 `selector` / `text` 两种纯查询）。失败分类同样按写调用对待：超时/取消报 `effectState=unknown`（谓词可能已经跑过），而不是「重试安全」。扩展侧的轮询条件由 `(fn)()` 求值，函数与裸布尔表达式都接受。
 
+## 调试器附着与 Chrome 的调试信息栏（扩展 1.7.7）
+
+- **附着是按需的，不是永久的**。第一次 CDP 调用挂上调试器；最后一条命令之后 `idleDetachMs`（默认 20 秒）没有新的 CDP 调用，就解除调试器——Chrome 在那个标签页顶上自己的「“DSH Browser Control”已开始调试此浏览器」信息栏随之消失（那是浏览器的安全提示，扩展改不了也藏不掉，所以只能靠「不挂着」让它消失）。下一条命令来了再挂上。
+- **倒计时从最后一次调用起算，在飞的命令绝不被解除**：每个标签页计着在飞的 `withCDP` 闭包数，闭包结束时才重置倒计时；一条命令等得比阈值久（慢导航、长 `wait`）也不会中途掉调试器。
+- **解除只收调试器**：控制台 / 网络日志不清（模型点了一下、想了一会儿再来读，读到的还是那些）；设备视口 / UA / 触摸 / 网络与 CPU 节流记在 `emulationState` 里，重新挂上时按 `cmdEmulate` 的顺序重放（best effort）。标签页关闭、用户在弹窗里断开桥，才连记录一起清掉。
+- **图标替信息栏说话**：蓝 `RUN` = 已连接且正挂着调试器；绿 `ON` = 已连接、空闲；红 `RO` = 弹窗只读开着，压过前两种。
+- **明说的两个代价**：两条命令相隔超过空闲时长时，页面在这段空闲里打的日志、发的请求不被捕获；原生 `alert` / `confirm` 在空闲期间弹出时**不**被自动应答，会等用户来点（命令执行期间照旧）。
+- `chrome.storage.local` 的 `idleDetachMs`：`0` = 一直挂着（1.7.6 及以前的行为），其它非负数 = 毫秒，非法值回落 20 秒；改动即时生效。
+- 实测台：`verify/verify_idle_detach.mjs`（真 `setTimeout` + 有状态假 `chrome.debugger`）。
+
 ## 原生弹窗（alert / confirm / prompt）
 
+- 自动应答只在调试器挂着时发生：从一条命令开始，到它之后 20 秒为止（见上「调试器附着」）。空闲期间弹出的弹窗不会被应答，会等用户；`manual` 下本来就如此。
 - v1.0.2+ 默认策略 `accept`：弹窗打开即自动按 OK，prompt 以 `defaultPrompt` 作为输入。
 - 每次点击/输入结果带 `dialogsAnswered`（近 5 秒内该标签页被应答的弹窗数），可据此断言弹窗出现过。
 - 全局策略可通过 `dialog` 命令改为 `dismiss` 或 `manual`；`manual` 下弹窗会阻塞页面线程直到工具超时。
@@ -60,7 +71,7 @@ Agent 和上层脚本可以依赖的确定性语义。违反这些契约视为 b
 - **整页存档（`browser_archive`）**：`Page.captureSnapshot(MHTML)`，正文/图片/样式全内联成单文件，扩展回原始载荷、插件写 `.mhtml`（`path` 可指定绝对路径，否则落 shotsDir，与 pdf/screenshot 同约定）。**它是快照，不是活页**：内嵌脚本不会运行、存档之后的页面变化不反映；可以当文本 grep。只读档拒绝（写本地文件，与 pdf/screenshot 同类）。实测台：`verify/verify_archive.mjs`。
 - 点击结果包含实际命中点 `clicked.x/y` 与 `hitVerified`（命中元素是否等于目标元素）。`hitVerified: false` 时附 `hitInstead` 字段指明实际命中的元素——典型场景是 sticky 头部/广告遮挡。
 - **历史导航（`browser_tabs action:"back"/"forward"`，v1.7.0）**：目的地从 `Page.getNavigationHistory` **读**出来，不猜——到达判据与 navigate 同一套（`frameNavigated` 提交 + dcl/load 在认领之后才算 + 1.2s 宽限期比落点）。三种「没动」分得清楚：历史尽头当场回 `unchanged:true` + 原因（什么都不发射，不浪费预算）；历史读不到时退化成「任何提交都算」并标 `historyUnknown:true`；预算耗尽报 `loadPending:true`。回执带 `targetUrl`（这次去的是哪条）。**重试会多跳一条历史** ⇒ 写命令（与 nav 同族），只读档拒；接管浮层中止态同样拦（`HOLD_BLOCKED_COMMANDS`）。实测台：`verify/verify_history_nav.mjs`。
-- **弱网 / CPU 限速（`browser_emulate` 的 `network` / `cpuThrottlingRate`，v1.7.1）**：`network` 预设 slow3g（400ms RTT，双向 ~50KB/s）/ fast3g（150ms，~200KB/s 下 / ~94KB/s 上）/ offline / reset——数值是本工具自己定的（对齐 DevTools/Lighthouse 数量级，不冒充其同名预设），写进工具描述。`cpuThrottlingRate` 1–20（1 = 不限）。**回执报生效数值**（latency/吞吐/倍率），render 也写——模型只看那句话。节流挂在 debugger 会话上：扩展 detach 即失效；`device:"reset"` 是「全部还原」，连节流一起清（只清设备形状会让模型以为回到了真实环境）。emulate 整体仍是写命令（节流改页面加载行为）。
+- **弱网 / CPU 限速（`browser_emulate` 的 `network` / `cpuThrottlingRate`，v1.7.1）**：`network` 预设 slow3g（400ms RTT，双向 ~50KB/s）/ fast3g（150ms，~200KB/s 下 / ~94KB/s 上）/ offline / reset——数值是本工具自己定的（对齐 DevTools/Lighthouse 数量级，不冒充其同名预设），写进工具描述。`cpuThrottlingRate` 1–20（1 = 不限）。**回执报生效数值**（latency/吞吐/倍率），render 也写——模型只看那句话。节流挂在 debugger 会话上，会话解除即失效——扩展记着累计状态，空闲解除后下一条命令重新挂上时原样重放（扩展 1.7.7），标签页关闭或断开桥才真的没了；`device:"reset"` 是「全部还原」，连节流一起清（只清设备形状会让模型以为回到了真实环境）。emulate 整体仍是写命令（节流改页面加载行为）。
 - **性能指标（`browser_metrics`，v1.7.1）**：`Performance.getMetrics`，只读（重试只是再读一遍计数器），进只读白名单。指标名是 CDP 固定那批，扩展**只透传已知名字**（CDP 新增指标不会打穿封闭 schema），回空如实报错。回执与 render 带数字本身（nodes / heap（MB）/ layouts / script / tasks）。实测台：`verify/verify_metrics_throttle.mjs`。
 
 ## 超时

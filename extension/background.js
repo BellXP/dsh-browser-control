@@ -26,12 +26,21 @@ const HEARTBEAT_MS = 20_000;
 const MAX_BACKOFF_MS = 30_000;
 const DEFAULT_PORT = 9777;
 const DEFAULT_TOKEN = 'dsh-local';
+/**
+ * 空闲解除（v1.7.7）。调试器挂着的时候，Chrome 会在那个标签页顶上常驻一条自己的
+ * 「“DSH Browser Control”已开始调试此浏览器」信息栏——那是浏览器的安全提示，扩展
+ * 改不了它的样子，也藏不掉它。所以不再一直挂着：最后一次 CDP 调用之后这么久没有
+ * 新调用，就解除调试器（信息栏随之消失），下一条命令来了再挂上。图标替它说话：
+ * 蓝色 RUN = 正在操作（Chrome 此时显示信息栏），绿色 ON = 空闲（没有信息栏）。
+ */
+const DEFAULT_IDLE_DETACH_MS = 20_000;
 
-/** Stored config shape (version 2): {port, token, autoConnect}. */
+/** Stored config shape (version 2): {port, token, autoConnect, idleDetachMs}. */
 const DEFAULT_CONFIG = Object.freeze({
 	port: DEFAULT_PORT,
 	token: DEFAULT_TOKEN,
 	autoConnect: true,
+	idleDetachMs: DEFAULT_IDLE_DETACH_MS,
 });
 
 let cfg = { ...DEFAULT_CONFIG };
@@ -46,14 +55,32 @@ let lastError = null;
  *  until they click 立即连接 again. Reset on browser restart. */
 let manualDisconnect = false;
 
-/** Tab ids we hold a persistent debugger attachment on. Detach only on
- *  explicit disconnect, tab close, or DevTools stealing the tab. */
+/** Tab ids we hold a debugger attachment on right now. It goes away on explicit
+ *  disconnect, tab close, DevTools stealing the tab, and — see DEFAULT_IDLE_DETACH_MS —
+ *  after a quiet spell with no CDP call. */
 const attachedTabs = new Set();
 
-/** Per-tab ring buffer of CDP `Runtime.consoleAPICalled` entries since attach.
+/** 空闲解除的账：每个标签页在飞的 `withCDP` 闭包数（>0 时绝不解除），以及各自
+ *  的倒计时句柄。倒计时在每次闭包结束时重置，所以连续的命令不会中途被解除。 */
+const tabInFlight = new Map();
+const idleTimers = new Map();
+
+/**
+ * 每个标签页上一次 `emulate` 生效后的**累计**状态。CDP 的仿真（视口 / UA / 触摸 /
+ * 网络与 CPU 节流）挂在调试器会话上，解除即失效；重新挂上时按这份记录原样重放，
+ * 模型设过的东西不会因为一次空闲解除悄悄消失（它以为自己还在 390×844 的慢网里，
+ * 页面其实回到了桌面宽带——那是调试里最难看出来的一种假象）。
+ * `null` = 这个维度是 Chrome 的新会话默认值，不必重放。标签页关闭或断开桥时清掉。
+ */
+const NO_EMULATION = Object.freeze({ metrics: null, userAgent: null, touch: false, network: null, cpuRate: null });
+const emulationState = new Map();
+
+/** Per-tab ring buffer of CDP `Runtime.consoleAPICalled` entries.
  *  Map<tabId, Array<entry>>. Entries are capped at 500 per tab; older entries
- *  shift off. A new attach bumps the tab's generation so stale entries queued
- *  before re-attach are not surfaced as if they were current. */
+ *  shift off. An idle detach keeps the buffer (the agent reads it after a pause);
+ *  a tab closing or an explicit disconnect clears it. A new attach bumps the tab's
+ *  generation so stale entries queued against an old attachment are not surfaced
+ *  as if they were current. */
 const consoleLog = new Map();
 /** Bumped on every re-attach so entries recorded against an old generation are
  *  dropped. Map<tabId, number>. */
@@ -99,6 +126,14 @@ const dialogLog = [];
 
 /* ------------------------------------------------------------------ config */
 
+/** `idleDetachMs` is the one field a hand-edited store can set wrong; anything but a
+ *  finite non-negative number falls back to the default instead of becoming a NaN timer
+ *  or — `Number(null)` being 0 — a silent "never detach". */
+function normalizeConfig(next) {
+	const raw = next.idleDetachMs;
+	return { ...next, idleDetachMs: typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 ? raw : DEFAULT_IDLE_DETACH_MS };
+}
+
 async function loadConfig() {
 	const stored = await chrome.storage.local.get(Object.keys(DEFAULT_CONFIG));
 	// v1→v2 migration: convert old serverUrl to port.
@@ -108,13 +143,18 @@ async function loadConfig() {
 		} catch { stored.port = DEFAULT_PORT; }
 		delete stored.serverUrl;
 	}
-	cfg = { ...DEFAULT_CONFIG, ...stored };
+	cfg = normalizeConfig({ ...DEFAULT_CONFIG, ...stored });
 }
 
 chrome.storage.onChanged.addListener((changes, area) => {
 	if (area !== 'local') return;
 	for (const [key, change] of Object.entries(changes)) {
-		if (key in DEFAULT_CONFIG) cfg[key] = change.newValue;
+		if (!(key in DEFAULT_CONFIG)) continue;
+		cfg[key] = change.newValue;
+		if (key === 'idleDetachMs') {
+			cfg = normalizeConfig(cfg);
+			idleDetachSettingChanged();
+		}
 	}
 });
 
@@ -131,12 +171,26 @@ function setBadge(text, color) {
 
 function setState(state) {
 	wsState = state;
-	// While the popup's read-only switch is on it owns the badge: "connected but
-	// read-only for the agent" must not look like a healthy green ON.
+	paintBadge();
+}
+
+/**
+ * The toolbar icon is the one place the extension says that it is driving a tab,
+ * now that Chrome's own infobar goes away between commands (v1.7.7):
+ *   red RO     the popup's read-only switch is on — it owns the badge, because
+ *              "connected but read-only for the agent" must not look like a healthy green ON
+ *   amber …    connecting
+ *   gray OFF   not connected
+ *   blue RUN   connected, and a debugger is attached right now — exactly the time
+ *              Chrome shows its "is being debugged" infobar on that tab
+ *   green ON   connected and idle: no debugger attached, no infobar anywhere
+ */
+function paintBadge() {
 	if (hardLocked) { setBadge('RO', '#dc2626'); return; }
-	if (state === 'open') setBadge('ON', '#16a34a');
-	else if (state === 'connecting') setBadge('…', '#d97706');
-	else setBadge('OFF', '#6b7280');
+	if (wsState === 'connecting') { setBadge('…', '#d97706'); return; }
+	if (wsState !== 'open') { setBadge('OFF', '#6b7280'); return; }
+	if (attachedTabs.size > 0) setBadge('RUN', '#2563eb');
+	else setBadge('ON', '#16a34a');
 }
 
 function send(obj) {
@@ -214,6 +268,9 @@ function disconnectNow() {
 		try { sock.close(); } catch { /* ignore */ }
 	}
 	detachAll();
+	// An explicit disconnect is the user saying "hands off": the sessions are gone, so
+	// the emulation they carried must not come back with the next connection.
+	emulationState.clear();
 	setState('idle');
 }
 
@@ -1057,12 +1114,13 @@ async function assertWindowNotMinimized(tabId) {
 	}
 }
 
-/* ---------------------------------------------------------- debugger (CDP) — persistent attachment */
+/* ---------------------------------------------------------- debugger (CDP) — attach on demand */
 
 /**
- * Ensure a persistent debugger attachment on `tabId`. Attaches once on first
- * CDP call and holds the attachment until explicit detach or tab close.
- * The Chrome "is being controlled" banner stays visible until detach.
+ * Ensure a debugger attachment on `tabId`. Attaches on the first CDP call after a
+ * quiet spell and holds it only while commands keep coming: once a tab has been
+ * quiet for `idleDetachMs` the attachment goes (Chrome's own "is being debugged"
+ * infobar with it) and the next call attaches again. See DEFAULT_IDLE_DETACH_MS.
  */
 async function ensureAttached(tabId) {
 	if (attachedTabs.has(tabId)) return;
@@ -1086,6 +1144,25 @@ async function ensureAttached(tabId) {
 	// Bump the per-attached-tab generation so in-flight network entries queued
 	// against an old attachment are not surfaced as if they were current.
 	tabBufferGenerations.set(tabId, (tabBufferGenerations.get(tabId) ?? 0) + 1);
+	// A fresh session starts from Chrome's defaults: put back what the agent last asked for.
+	await reapplyEmulation(tabId);
+	paintBadge();
+}
+
+/**
+ * Replay the tab's recorded emulation on a fresh session, in the order `cmdEmulate`
+ * sends it. Nothing here may fail the command that caused the attach, so every send
+ * is best effort — the same stance the `reset` path takes.
+ */
+async function reapplyEmulation(tabId) {
+	const plan = emulationState.get(tabId);
+	if (!plan) return;
+	const send = (method, params) => dbgSend(tabId, method, params).catch(() => {});
+	if (plan.network) await send('Network.emulateNetworkConditions', plan.network);
+	if (plan.cpuRate !== null) await send('Emulation.setCPUThrottlingRate', { rate: plan.cpuRate });
+	if (plan.metrics) await send('Emulation.setDeviceMetricsOverride', plan.metrics);
+	if (plan.userAgent) await send('Emulation.setUserAgentOverride', { userAgent: plan.userAgent });
+	if (plan.touch) await send('Emulation.setTouchEmulationEnabled', { enabled: true });
 }
 
 /* Native dialog auto-answer: fires whenever the page opens alert/confirm/
@@ -1203,7 +1280,8 @@ function trimNetworkMap(tabMap) {
  *  call — safe to run from inside onDetach, where detaching again would be
  *  redundant. Deleting an unknown tabId is a no-op. */
 function clearAttachment(tabId) {
-	attachedTabs.delete(tabId);
+	if (attachedTabs.delete(tabId)) paintBadge();
+	cancelIdleDetach(tabId);
 	consoleLog.delete(tabId);
 	networkLog.delete(tabId);
 	tabBufferGenerations.delete(tabId);
@@ -1218,9 +1296,56 @@ function detachAll() {
 	for (const tabId of [...attachedTabs]) detachTab(tabId);
 }
 
+/* ------------------------------------------------------- idle detach (v1.7.7) */
+
+function cancelIdleDetach(tabId) {
+	const timer = idleTimers.get(tabId);
+	if (timer === undefined) return;
+	clearTimeout(timer);
+	idleTimers.delete(tabId);
+}
+
+/** (Re)arm the idle countdown of one tab: whenever a `withCDP` closure finishes and
+ *  whenever the setting changes. A tab with work in flight gets no countdown — the
+ *  last closure to finish is the one that arms it, so a run of commands is never
+ *  cut in the middle. */
+function scheduleIdleDetach(tabId) {
+	cancelIdleDetach(tabId);
+	const ms = cfg.idleDetachMs;
+	if (!(ms > 0) || !attachedTabs.has(tabId) || (tabInFlight.get(tabId) ?? 0) > 0) return;
+	idleTimers.set(tabId, setTimeout(() => {
+		idleTimers.delete(tabId);
+		detachForIdle(tabId);
+	}, ms));
+}
+
+/**
+ * Drop only the debugger, which is what makes Chrome's infobar go away. The capture
+ * buffers and the emulation record stay: the log the agent reads after a pause still
+ * holds what it captured, and the viewport or throttling it asked for is replayed on
+ * the next attach (ensureAttached → reapplyEmulation).
+ */
+function detachForIdle(tabId) {
+	if (!attachedTabs.has(tabId) || (tabInFlight.get(tabId) ?? 0) > 0) return;
+	// Requests still open at this moment keep their last seen state, exactly like a
+	// long-poll on an attached tab does: the capture never learns how they ended.
+	attachedTabs.delete(tabId);
+	chrome.debugger.detach({ tabId }, () => void chrome.runtime.lastError);
+	paintBadge();
+}
+
+/** The setting changed under us (a storage edit): 0 cancels every countdown, anything
+ *  else restarts them from now for the tabs that are attached and quiet. */
+function idleDetachSettingChanged() {
+	for (const tabId of [...idleTimers.keys()]) cancelIdleDetach(tabId);
+	if (!(cfg.idleDetachMs > 0)) return;
+	for (const tabId of [...attachedTabs]) scheduleIdleDetach(tabId);
+}
+
 /* Clean up when a tab is closed (detaches automatically, but remove from set). */
 chrome.tabs.onRemoved.addListener((tabId) => {
 	clearAttachment(tabId);
+	emulationState.delete(tabId);
 });
 
 /* Invalidate the attachment cache whenever the debugger detaches, for ANY
@@ -1269,7 +1394,8 @@ function dbgSend(tabId, method, params) {
 	});
 }
 
-/** Persistent CDP: attaches (if not already) and holds. A command whose session
+/** CDP under an attachment: attaches (if not already), holds it while the closure
+ *  runs and arms the idle countdown when it finishes. A command whose session
  *  was lost mid-flight re-attaches ONCE and replays — turning the old "detached
  *  means this tab is dead forever" behavior into a single transparent retry.
  *  A second failure propagates to the caller.
@@ -1291,14 +1417,23 @@ function dbgSend(tabId, method, params) {
 async function withCDP(tabId, fn) {
 	let sends = 0;
 	const call = (method, params) => { sends++; return dbgSend(tabId, method, params); };
-	await ensureAttached(tabId);
-	const started = sends;
+	// Counted for the whole closure, attach included: the idle countdown must never
+	// fire under a command that is still running, whatever it is waiting on.
+	tabInFlight.set(tabId, (tabInFlight.get(tabId) ?? 0) + 1);
+	cancelIdleDetach(tabId);
 	try {
-		return await fn(call);
-	} catch (error) {
-		if (error?.code !== 'cdp_detached' || sends > started + 1) throw error;
 		await ensureAttached(tabId);
-		return fn(call);
+		const started = sends;
+		try {
+			return await fn(call);
+		} catch (error) {
+			if (error?.code !== 'cdp_detached' || sends > started + 1) throw error;
+			await ensureAttached(tabId);
+			return fn(call);
+		}
+	} finally {
+		tabInFlight.set(tabId, Math.max(0, (tabInFlight.get(tabId) ?? 1) - 1));
+		scheduleIdleDetach(tabId);
 	}
 }
 
@@ -1436,7 +1571,9 @@ async function cmdArchive(params) {
 /**
  * 弱网/CPU 节流（v1.7.1）。数值是这一版自己定的（对齐 DevTools/Lighthouse 的
  * 数量级，不冒充它们——那两个的数值随 Chrome 版本漂），写进工具描述让模型知道
- * 自己在测什么。吞吐单位是 CDP 的字节/秒。节流挂在 debugger 会话上：detach 即失效。
+ * 自己在测什么。吞吐单位是 CDP 的字节/秒。节流挂在 debugger 会话上：解除即失效，
+ * 所以 `emulationState` 记着累计状态，下一条命令重新挂上时重放（reapplyEmulation）；
+ * 标签页关闭或用户断开桥才真的清掉。
  */
 const NETWORK_PRESETS = {
 	slow3g: { latency: 400, downloadThroughput: 51_200, uploadThroughput: 51_200 },
@@ -1482,6 +1619,7 @@ async function cmdEmulate(params) {
 				offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1,
 			}).catch(() => {});
 			await send('Emulation.setCPUThrottlingRate', { rate: 1 }).catch(() => {});
+			emulationState.set(tab.id, { ...NO_EMULATION });
 			return { tabId: tab.id, reset: true, network: 'reset', cpuThrottlingRate: 1 };
 		}
 		if (network) {
@@ -1512,6 +1650,20 @@ async function cmdEmulate(params) {
 			await send('Emulation.setUserAgentOverride', { userAgent }).catch(() => {});
 		}
 		await send('Emulation.setTouchEmulationEnabled', { enabled: hasTouch }).catch(() => {});
+		// 记下累计状态，空闲解除后重新挂上时原样重放（reapplyEmulation）：只动这次真的
+		// 发过 CDP 的维度，其余沿用上一次的。
+		const prev = emulationState.get(tab.id) ?? NO_EMULATION;
+		emulationState.set(tab.id, {
+			metrics: width > 0 && height > 0 ? { width, height, deviceScaleFactor, mobile: isMobile } : prev.metrics,
+			userAgent: userAgent || prev.userAgent,
+			touch: hasTouch,
+			network: network
+				? (network.name === 'reset'
+					? null
+					: { offline: Boolean(network.offline), latency: network.latency, downloadThroughput: network.downloadThroughput, uploadThroughput: network.uploadThroughput })
+				: prev.network,
+			cpuRate: cpuRate !== undefined ? cpuRate : prev.cpuRate,
+		});
 		return {
 			tabId: tab.id,
 			width, height, deviceScaleFactor, isMobile, hasTouch,
@@ -3132,7 +3284,11 @@ async function cmdDialogPolicy(params) {
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 	if (msg?.type === 'bridgeStatus') {
-		sendResponse({ state: wsState, cfg, helloInfo, lastError, locked: hardLocked, lockReason: hardLocked ? hardLockReason : 'none' });
+		sendResponse({
+			state: wsState, cfg, helloInfo, lastError, locked: hardLocked, lockReason: hardLocked ? hardLockReason : 'none',
+			// Tabs with a debugger attached right now (blue RUN on the icon); empty = idle.
+			attached: [...attachedTabs],
+		});
 		return false;
 	}
 	if (msg?.type === 'lockSet') {

@@ -37,6 +37,15 @@
 		}
 		.ring.open .dot { background: #16a34a; box-shadow: 0 0 0 0 rgba(22, 163, 74, .45); animation: pulse 2s infinite; }
 		.ring.connecting .dot { background: #d97706; }
+	/* Driving a tab (debugger attached, so Chrome's own infobar shows there): the same
+	   blue as the toolbar badge's RUN, on the ring and on the line under the state. */
+	.ring.open.run { background: #dbeafe; }
+	.ring.open.run .dot { background: #2563eb; animation-name: pulse-run; }
+	@keyframes pulse-run {
+		0% { box-shadow: 0 0 0 0 rgba(37, 99, 235, .40); }
+		70% { box-shadow: 0 0 0 12px rgba(37, 99, 235, 0); }
+		100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0); }
+	}
 		@keyframes pulse {
 			0% { box-shadow: 0 0 0 0 rgba(22, 163, 74, .40); }
 			70% { box-shadow: 0 0 0 12px rgba(22, 163, 74, 0); }
@@ -44,6 +53,12 @@
 		}
 		.state { font-size: 15px; font-weight: 600; }
 		.sub { font-size: 12px; color: #64748b; min-height: 16px; margin-top: 2px; }
+	.drive {
+		display: none; margin: 8px auto 0; padding: 4px 10px; max-width: 260px;
+		border-radius: 999px; font-size: 11px; line-height: 1.45;
+	}
+	.drive.run { display: block; background: #dbeafe; color: #1d4ed8; font-weight: 600; }
+	.drive.idle { display: block; background: #f1f5f9; color: #64748b; }
 		.actions { display: flex; gap: 8px; padding: 4px 20px 12px; }
 		button.ghost.locked {
 			border-color: #dc2626; color: #b91c1c; background: #fef2f2; font-weight: 600;
@@ -113,6 +128,7 @@
 		<div class="ring" id="ring"><div class="dot"></div></div>
 		<div class="state" id="state">正在检查…</div>
 		<div class="sub" id="hello"></div>
+		<div class="drive" id="drive"></div>
 	</div>
 
 	<div class="actions">

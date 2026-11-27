@@ -85,6 +85,8 @@ export function makeModel({ failGroupTimes = 0 } = {}) {
     dclDelayMs: 50,
     loadEventDelayMs: 120,
     updatedListeners: [],
+    /** `chrome.tabs.onRemoved` 的监听器：扩展在标签页关闭时清掉该页的附着物与仿真记录。 */
+    removedListeners: [],
     axNodes: [],
     elements: new Map(),
     byBackend: new Map(),
@@ -135,6 +137,12 @@ export function makeModel({ failGroupTimes = 0 } = {}) {
     /** 手动驱动 CDP 事件（同站重定向回同一地址这类 tabs API 演不出的剧本）。 */
     fireCDP(tabId, method, params) {
       for (const fn of this.dbg.listeners.onEvent) fn({ tabId }, method, params);
+    },
+    /** 用户关掉一个标签页：标签消失，并像 Chrome 那样收回它的调试器会话。 */
+    fireRemoved(tabId) {
+      this.tabs.delete(tabId);
+      this.dbg.attached.delete(tabId);
+      for (const fn of this.removedListeners) { try { fn(tabId); } catch { /* 监听器炸了不该影响假浏览器 */ } }
     },
   };
 }
@@ -367,7 +375,13 @@ export function makeChrome(model, { withTabGroups = true, storage = {}, sessionS
   };
 
   const tabs = {
-    onRemoved: listener(),
+    onRemoved: {
+      addListener: (fn) => { model.removedListeners.push(fn); },
+      removeListener: (fn) => {
+        const at = model.removedListeners.indexOf(fn);
+        if (at >= 0) model.removedListeners.splice(at, 1);
+      },
+    },
     onUpdated: { addListener: (fn) => { model.updatedListeners.push(fn); }, removeListener: (fn) => {
       const at = model.updatedListeners.indexOf(fn);
       if (at >= 0) model.updatedListeners.splice(at, 1);

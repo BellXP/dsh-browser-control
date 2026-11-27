@@ -18,12 +18,27 @@ const STATE_SUB = {
 };
 
 function render(status) {
+	// 调试器挂着 = 正在操作（图标蓝色 RUN，Chrome 在那些标签页显示它自己的调试信息栏）；
+	// 没挂 = 空闲（图标绿色 ON）。这里的颜色和工具栏徽标是同一套语言。
+	const driving = status.state === 'open' && Array.isArray(status.attached) && status.attached.length > 0;
 	const ring = $('ring');
-	ring.className = `ring ${status.state}`;
+	ring.className = `ring ${status.state}${driving ? ' run' : ''}`;
 	$('state').textContent = STATE_TEXT[status.state] ?? status.state;
 	$('hello').textContent = status.helloInfo
 		? `${status.helloInfo.name} ${status.helloInfo.version}`
 		: (STATE_SUB[status.state]?.() ?? '');
+	const drive = $('drive');
+	if (status.state !== 'open') {
+		drive.className = 'drive';
+	} else if (driving) {
+		const idleSec = Math.round(Number(status.cfg?.idleDetachMs) / 1000);
+		drive.className = 'drive run';
+		drive.textContent = `图标蓝色 RUN：正在操作 ${status.attached.length} 个标签页，Chrome 在这些标签页显示「已开始调试此浏览器」`
+			+ (idleSec > 0 ? `；空闲 ${idleSec} 秒后自动解除，信息栏消失` : '；不会自动解除');
+	} else {
+		drive.className = 'drive idle';
+		drive.textContent = '图标绿色 ON：空闲，没有挂着调试器，Chrome 不显示调试信息栏';
+	}
 	if (document.activeElement !== $('port')) $('port').value = status.cfg.port ?? 9777;
 	if (document.activeElement !== $('token')) $('token').value = status.cfg.token;
 	$('auto').checked = Boolean(status.cfg.autoConnect);

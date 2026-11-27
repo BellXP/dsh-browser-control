@@ -40,7 +40,7 @@ Download [DSH-Browser-Control-v1.7.5.zip](https://github.com/angelky7/dsh-browse
 
 > Already on v1.7.2? No reinstall needed: the feature updates in v1.7.3–v1.7.10 do not touch the extension.
 >
-> The extension that goes with plugin v1.9.0 is **1.7.6** (the popup's Read-only switch: gates the agent, not your own panel actions). It is not packaged as a release yet — load the repository's `extension/` folder with "Load unpacked"; if you already run an older build, press "Reload" on it in `chrome://extensions` and confirm the version reads 1.7.6. An older extension still connects to the new plugin, but its popup switch keeps the old freeze-everything behaviour.
+> The extension that goes with plugin v1.9.1 is **1.7.7** (since 1.7.6 the popup's Read-only switch gates the agent, not your own panel actions; since 1.7.7 the debugger is released when the tab is idle, so Chrome's debugging infobar no longer stays, and the icon's colour tells "driving" from "idle"). It is not packaged as a release yet — load the repository's `extension/` folder with "Load unpacked"; if you already run an older build, press "Reload" on it in `chrome://extensions` and confirm the version reads 1.7.7. An older extension still connects to the new plugin, but its popup switch keeps the old freeze-everything behaviour and its debugging infobar stays up.
 
 ### 2. dsh plugin
 
@@ -76,6 +76,24 @@ Since v1.9.0 the right Sidebar's guide has a **Live Browser** card. It shows the
 - Click the picture to click the page, the wheel scrolls it; the bottom box sends text to the page (Enter sends and presses Enter, Shift+Enter sends only), next to Esc / ⌫ / Tab
 
 The panel uses the same bridge as the `browser_*` tools (Typert remote `browser-live`), and its actions land in the same audit trail. **Read-only mode gates the agent's tools only**: your own actions in the panel are not restricted, so turning read-only on means "I may look and act; the agent may not touch my browser". The extension popup's **Read-only** switch means the same thing (extension 1.7.6+): while it is on the agent can still read pages, but clicks, typing, navigation and scrolling are refused, and your own panel actions go through. The picture is a periodic screenshot, not a video stream; when the extension is offline the panel says so.
+
+## Chrome's debugging infobar and the icon's colours (extension 1.7.7)
+
+The extension drives pages through Chrome's DevTools protocol, and on every tab whose debugger it holds Chrome shows its own "**DSH Browser Control** started debugging this browser" infobar. That is the browser's safety notice: the extension can neither restyle nor hide it. So since 1.7.7 the debugger is **no longer held for good**: when no command has arrived for 20 s after the last one, it is released (the infobar goes away), and the next command attaches again. The toolbar icon says which it is, and the popup repeats it on one line:
+
+| Icon | Meaning |
+|---|---|
+| blue `RUN` | connected and driving a tab — Chrome is showing its debugging infobar there |
+| green `ON` | connected and idle: no debugger attached, no infobar |
+| red `RO` | the popup's **Read-only** is on (it outranks the two above: "connected but read-only" must not look healthy) |
+| amber `…` / grey `OFF` | connecting / not connected |
+
+Releasing only drops the debugger; everything else is remembered — console and network logs, the device viewport and the network / CPU throttling are put back when the next command attaches (not after `device:"reset"`, of course). Two costs to know about:
+
+- when two commands are more than 20 s apart, whatever the page logs or requests during that pause is **not captured** (what was captured before still is);
+- an `alert` / `confirm` that opens during such a pause is **not auto-answered**; it waits for you (during a command it is answered as before).
+
+To go back to always-attached, or to pick another idle time: on `chrome://extensions` open the extension's **Service Worker** console and run `chrome.storage.local.set({ idleDetachMs: 0 })` (`0` = never release; any other non-negative number = milliseconds). It takes effect at once.
 
 ## Safety gates
 

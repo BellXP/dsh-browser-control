@@ -50,5 +50,5 @@ Chrome 浏览器扩展 + DeepSeek Harness 插件，让 AI Agent 通过 CDP 驱�
 - `src/server.ts` - WebSocket 服务 + HTTP 面（鉴权、来源校验、状态页）
 - `src/ws.ts` - RFC 6455 帧编解码
 - `src/errors.ts` - 失败分类：`code` / `effectState` / `hint` 写进模型读得到的那句话
-- `extension/background.js` - CDP 命令分发 + 持久 debugger 附着 + 本地硬锁 + 接管浮层（`hold`）
+- `extension/background.js` - CDP 命令分发 + 按需 debugger 附着（最后一条命令后空闲 20 秒自动解除，Chrome 的调试信息栏随之消失；图标蓝 `RUN` = 操作中、绿 `ON` = 空闲）+ 本地硬锁 + 接管浮层（`hold`）
 - `extension/popup.js` - 弹窗状态 UI 与「只读」按钮
